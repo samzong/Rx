@@ -94,6 +94,15 @@ fn model_entry(provider: &Provider, protocol: ModelProtocol, listed: &ListedMode
     }
     let context = listed.context_length.unwrap_or_else(|| catalog::fallback_context(&provider.id));
     entry.insert("contextWindow".into(), context.into());
+    let messages = ModelProtocol::AnthropicMessages;
+    let protocol =
+        if crate::provider::serves(&provider.id, &provider.endpoint, &listed.id, messages) {
+            entry.insert("api".into(), messages.as_str().into());
+            entry.insert("baseUrl".into(), crate::provider::claude_base(provider).into());
+            messages
+        } else {
+            protocol
+        };
     let control =
         crate::provider::reasoning_control(&provider.id, &provider.endpoint, &listed.id, protocol);
     let levels = match control {
@@ -152,6 +161,46 @@ mod tests {
         assert_eq!(
             entry("kimi-k3"),
             json!({"id": "kimi-k3", "contextWindow": 400_000, "reasoning": false})
+        );
+    }
+
+    #[test]
+    fn tokener_claude_models_route_to_anthropic_messages() {
+        let provider = crate::provider::find("tokener").unwrap();
+        let listed =
+            ListedModel { id: "claude-opus-5".to_string(), name: None, context_length: None };
+        let entry = |provider: &Provider| {
+            let protocol = crate::provider::dsh_protocol("tokener", &provider.endpoint);
+            model_entry(provider, protocol, &listed)
+        };
+        assert_eq!(
+            entry(provider),
+            json!({
+                "id": "claude-opus-5",
+                "contextWindow": catalog::fallback_context("tokener"),
+                "api": "anthropic-messages",
+                "baseUrl": "https://api.tokener.ai",
+                "reasoning": true,
+                "thinkingLevelMap": {
+                    "off": null, "minimal": null, "low": "low", "medium": "medium",
+                    "high": "high", "xhigh": "xhigh", "max": "max",
+                },
+            })
+        );
+        let relayed = Provider {
+            anthropic_base: Some("https://relay.example/anthropic/v1".to_string()),
+            ..provider.clone()
+        };
+        assert_eq!(entry(&relayed)["baseUrl"], "https://relay.example/anthropic");
+        let proxied =
+            Provider { endpoint: "https://proxy.example/v1".to_string(), ..provider.clone() };
+        assert_eq!(
+            entry(&proxied),
+            json!({
+                "id": "claude-opus-5",
+                "contextWindow": catalog::fallback_context("tokener"),
+                "reasoning": false,
+            })
         );
     }
 }

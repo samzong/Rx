@@ -160,6 +160,48 @@
             }
           }
         }
+      },
+      "claude-opus-5": {
+        "anthropic-messages": {
+          "reasoning": {
+            "kind": "effort",
+            "levels": {
+              "low": "low",
+              "medium": "medium",
+              "high": "high",
+              "xhigh": "xhigh",
+              "max": "max"
+            }
+          }
+        }
+      },
+      "claude-sonnet-5": {
+        "anthropic-messages": {
+          "reasoning": {
+            "kind": "effort",
+            "levels": {
+              "low": "low",
+              "medium": "medium",
+              "high": "high",
+              "xhigh": "xhigh",
+              "max": "max"
+            }
+          }
+        }
+      },
+      "claude-fable-5": {
+        "anthropic-messages": {
+          "reasoning": {
+            "kind": "effort",
+            "levels": {
+              "low": "low",
+              "medium": "medium",
+              "high": "high",
+              "xhigh": "xhigh",
+              "max": "max"
+            }
+          }
+        }
       }
     }
   },

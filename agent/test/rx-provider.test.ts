@@ -34,14 +34,30 @@ function handoff(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({ defaultModel: (fields.models as { id?: string }[])[0]?.id, ...fields });
 }
 
-function chatServer(requests: { url?: string; authorization?: string; body: Record<string, unknown> }[]): Promise<{ server: Server; baseUrl: string }> {
+type Recorded = { url?: string; authorization?: string; apiKey?: string; body: Record<string, unknown> };
+
+function chatServer(requests: Recorded[]): Promise<{ server: Server; baseUrl: string }> {
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
     request.on("end", () => {
       const parsed = JSON.parse(body);
-      requests.push({ url: request.url, authorization: request.headers.authorization, body: parsed });
+      const apiKey = request.headers["x-api-key"] as string | undefined;
+      requests.push({ url: request.url, authorization: request.headers.authorization, apiKey, body: parsed });
       response.writeHead(200, { "content-type": "text/event-stream" });
+      if (request.url?.startsWith("/v1/messages")) {
+        const usage = { input_tokens: 1, output_tokens: 1 };
+        const events = [
+          { type: "message_start", message: { id: "m1", type: "message", role: "assistant", model: parsed.model, content: [], stop_reason: null, usage } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "pong" } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage },
+          { type: "message_stop" },
+        ];
+        response.end(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""));
+        return;
+      }
       if (request.url?.endsWith("/responses")) {
         const message = { type: "message", id: "m1", role: "assistant", status: "completed" };
         const events = [
@@ -129,7 +145,15 @@ test("a handoff to another endpoint does not borrow built-in metadata", () => {
 
 test("malformed handoffs fail closed", () => {
   assert.throws(() => parseHandoff("{"), /RX_AGENT_PROVIDER: invalid JSON/);
-  assert.throws(() => parseHandoff(handoff({ api: "anthropic-messages" })), /unsupported api "anthropic-messages"/);
+  assert.throws(() => parseHandoff(handoff({ api: "google-generative-ai" })), /unsupported api "google-generative-ai"/);
+  assert.throws(
+    () => parseHandoff(handoff({ models: [{ id: "m", contextWindow: 1, reasoning: false, api: "google-generative-ai" }] })),
+    /unsupported models\[0\]\.api "google-generative-ai"/,
+  );
+  assert.throws(
+    () => parseHandoff(handoff({ models: [{ id: "m", contextWindow: 1, reasoning: false, baseUrl: "" }] })),
+    /models\[0\]\.baseUrl must be a non-empty string/,
+  );
   assert.throws(() => parseHandoff(handoff({ models: [] })), /models must be a non-empty array/);
   assert.throws(() => parseHandoff(handoff({ defaultModel: undefined })), /defaultModel must be/);
   assert.throws(() => parseHandoff(handoff({ defaultModel: "gone-1" })), /defaultModel "gone-1" is not in models/);
@@ -144,7 +168,7 @@ test("malformed handoffs fail closed", () => {
 });
 
 test("requests go to the handed-off endpoint with its key and mapped effort", async () => {
-  const requests: { url?: string; authorization?: string; body: Record<string, unknown> }[] = [];
+  const requests: Recorded[] = [];
   const { server, baseUrl } = await chatServer(requests);
   process.env.ACME_TEST_API_KEY = "test-key";
   try {
@@ -188,6 +212,60 @@ test("responses handoffs omit prompt_cache_key", async () => {
     assert.equal(requests[0]!.url, "/v1/responses");
     assert.equal(requests[0]!.body.model, "plain-1");
     assert.equal(Object.hasOwn(requests[0]!.body, "prompt_cache_key"), false);
+  } finally {
+    delete process.env.ACME_TEST_API_KEY;
+    server.close();
+  }
+});
+
+test("a model handed off on anthropic-messages uses its own endpoint, caching, and adaptive effort", async () => {
+  const requests: Recorded[] = [];
+  const { server, baseUrl } = await chatServer(requests);
+  const origin = baseUrl.replace(/\/v1$/, "");
+  process.env.ACME_TEST_API_KEY = "test-key";
+  try {
+    const models = builtinModels();
+    applyHandoff(
+      models,
+      parseHandoff(
+        handoff({
+          api: "openai-responses",
+          baseUrl,
+          models: [
+            {
+              id: "claude-1",
+              contextWindow: 200000,
+              reasoning: true,
+              api: "anthropic-messages",
+              baseUrl: origin,
+              thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+            },
+            { id: "plain-1", contextWindow: 64000, reasoning: false },
+          ],
+        }),
+      ),
+    );
+    const context = { systemPrompt: "rules", messages: [{ role: "user" as const, content: "ping", timestamp: 0 }] };
+    const { model, thinking } = await resolveModel(models, "acme/claude-1", "xhigh");
+    assert.equal(thinking, "xhigh");
+    const reply = await models.completeSimple(model, context, { reasoning: "xhigh" });
+    assert.equal(reply.stopReason, "stop", reply.errorMessage);
+    assert.deepEqual(reply.content, [{ type: "text", text: "pong" }]);
+    const off = await models.completeSimple(model, context);
+    assert.equal(off.stopReason, "stop", off.errorMessage);
+    const plain = await models.completeSimple((await resolveModel(models, "acme/plain-1", "off")).model, context);
+    assert.equal(plain.stopReason, "stop", plain.errorMessage);
+    const [high, quiet, responses] = requests;
+    assert.match(high!.url!, /^\/v1\/messages(\?|$)/);
+    assert.equal(high!.apiKey, "test-key");
+    assert.equal(high!.body.model, "claude-1");
+    assert.deepEqual(high!.body.thinking, { type: "adaptive", display: "summarized" });
+    assert.deepEqual(high!.body.output_config, { effort: "xhigh" });
+    assert.deepEqual((high!.body.system as { cache_control?: unknown }[]).at(-1)?.cache_control, { type: "ephemeral" });
+    assert.equal(Object.hasOwn(quiet!.body, "thinking"), false);
+    assert.equal(Object.hasOwn(quiet!.body, "output_config"), false);
+    assert.equal(responses!.url, "/v1/responses");
+    assert.equal(responses!.body.model, "plain-1");
   } finally {
     delete process.env.ACME_TEST_API_KEY;
     server.close();
