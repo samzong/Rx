@@ -146,7 +146,7 @@ fn logout(paths: &Paths, env: &EnvLookup, requested: Option<&str>) -> Result<()>
 fn logout_provider(paths: &Paths, env: &EnvLookup, state: &ProviderState) -> Result<()> {
     let report = crate::residue::purge(&state.provider.id, paths, env);
     if report.removed() {
-        println!("Cleared rx-owned harness configuration for {}.", state.provider.name);
+        println!("Cleared Rx-owned harness configuration for {}.", state.provider.name);
     }
     for note in report.notes() {
         println!("  {note}");

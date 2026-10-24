@@ -415,7 +415,7 @@ fn render_logout_confirmation(frame: &mut Frame, area: Rect, app: &App, palette:
     let detail = if state.stored_key {
         "Removes the locally stored API key."
     } else if state.environment_active {
-        "The key comes from your environment; rx will show the unset command."
+        "The key comes from your environment; Rx will show the unset command."
     } else {
         "No local credential is configured."
     };

@@ -66,7 +66,7 @@ fn homebrew_managed_rx_is_detected_through_bin_symlink() {
     );
     assert_eq!(
         crate::update::homebrew_launch_update_notice(&linked_rx, "0.6.0"),
-        Some("rx 0.6.0 is available — run `brew upgrade rx`".to_string())
+        Some("Rx 0.6.0 is available — run `brew upgrade rx`".to_string())
     );
 }
 

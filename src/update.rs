@@ -17,7 +17,7 @@ const GITHUB_REPO: &str = "samzong/Rx";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const LAUNCH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
-pub(crate) const HOMEBREW_UPDATE_HINT: &str = "rx is managed by Homebrew; run `brew upgrade rx`";
+pub(crate) const HOMEBREW_UPDATE_HINT: &str = "Rx is managed by Homebrew; run `brew upgrade rx`";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReleaseInfo {
@@ -37,7 +37,7 @@ pub(crate) struct UpdateState {
 pub(crate) fn help() -> &'static str {
     concat!(
         "usage: rx update [--yes]\n\n",
-        "Download and install the latest rx from GitHub releases.\n",
+        "Download and install the latest Rx from GitHub releases.\n",
     )
 }
 
@@ -55,17 +55,17 @@ fn install(yes: bool) -> Result<()> {
     let current = crate::RELEASE_VERSION;
     let release = fetch_latest_release(HTTP_TIMEOUT)?;
     if !update_pending(current, &release) {
-        println!("rx {current} is up to date (latest: {})", release.version);
+        println!("Rx {current} is up to date (latest: {})", release.version);
         return Ok(());
     }
     ensure_current_executable_self_update_allowed()?;
-    if !yes && !confirm(&format!("Update rx {current} → {}?", release.version))? {
+    if !yes && !confirm(&format!("Update Rx {current} → {}?", release.version))? {
         println!("update cancelled");
         return Ok(());
     }
-    eprintln!("Updating rx to {}...", release.version);
+    eprintln!("Updating Rx to {}...", release.version);
     install_release(&release)?;
-    println!("Updated rx to {}", release.version);
+    println!("Updated Rx to {}", release.version);
     Ok(())
 }
 
@@ -107,7 +107,7 @@ pub(crate) fn maybe_before_launch(
     }
     if !state.auto_update {
         if !io::stderr().is_terminal() || !io::stdin().is_terminal() {
-            eprintln!("rx {} is available — run `rx update`", release.version);
+            eprintln!("Rx {} is available — run `rx update`", release.version);
             return Ok(());
         }
         match prompt(&release.version)? {
@@ -116,7 +116,7 @@ pub(crate) fn maybe_before_launch(
             PromptChoice::NotNow => return Ok(()),
         }
     }
-    eprintln!("Updating rx to {}...", release.version);
+    eprintln!("Updating Rx to {}...", release.version);
     install_release(&release)?;
     relaunch(raw_args)?;
     Ok(())
@@ -129,7 +129,7 @@ enum PromptChoice {
 }
 
 fn prompt(latest: &str) -> Result<PromptChoice> {
-    eprintln!("rx {latest} is available. Update before launching?");
+    eprintln!("Rx {latest} is available. Update before launching?");
     eprintln!("  1) Always auto-update on launch");
     eprintln!("  2) Update now");
     eprintln!("  3) Not now");
@@ -298,7 +298,7 @@ pub(crate) fn self_update_blocker(path: &Path) -> Option<&'static str> {
 }
 
 pub(crate) fn homebrew_launch_update_notice(path: &Path, latest: &str) -> Option<String> {
-    self_update_blocker(path).map(|_| format!("rx {latest} is available — run `brew upgrade rx`"))
+    self_update_blocker(path).map(|_| format!("Rx {latest} is available — run `brew upgrade rx`"))
 }
 
 fn homebrew_update_hint(path: &Path) -> Option<&'static str> {

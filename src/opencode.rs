@@ -63,7 +63,7 @@ pub(crate) fn auth_conflict_note(
     });
     if stored_key.is_some_and(|stored_key| stored_key != key) {
         Some(format!(
-            "[rx] opencode stored OpenRouter credential at {} differs from rx provider key; remove or update it to avoid auth conflicts",
+            "[rx] opencode stored OpenRouter credential at {} differs from Rx provider key; remove or update it to avoid auth conflicts",
             path.display()
         ))
     } else {

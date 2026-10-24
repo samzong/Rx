@@ -252,12 +252,12 @@ fn catalog_lease_name(catalog: &OwnedCatalog) -> Result<String> {
 }
 
 fn confirm_migration(allow_prompt: bool) -> Result<()> {
-    let instruction = "close all Kimi sessions started by older rx, then rerun this command in a terminal and type 'migrate' to confirm";
+    let instruction = "close all Kimi sessions started by older Rx, then rerun this command in a terminal and type 'migrate' to confirm";
     if !allow_prompt || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         bail!("Kimi catalog migration required: {instruction}");
     }
     eprint!(
-        "[rx] Kimi catalog migration: all Kimi sessions started by older rx must be closed. Type 'migrate' to confirm they have exited: "
+        "[rx] Kimi catalog migration: all Kimi sessions started by older Rx must be closed. Type 'migrate' to confirm they have exited: "
     );
     io::stderr().flush()?;
     let mut answer = String::new();
@@ -370,7 +370,7 @@ fn reconcile(
             .is_some_and(|item| provider_matches(item, &desired.provider));
     if provider_exists && !provider_reusable {
         bail!(
-            "Kimi provider alias '{}' already exists outside rx ownership",
+            "Kimi provider alias '{}' already exists outside Rx ownership",
             desired.provider.alias
         );
     }
@@ -387,7 +387,7 @@ fn reconcile(
             })
         })
     {
-        bail!("Kimi model alias '{alias}' already exists outside rx ownership");
+        bail!("Kimi model alias '{alias}' already exists outside Rx ownership");
     }
 
     if !provider_reusable {

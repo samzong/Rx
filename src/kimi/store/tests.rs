@@ -115,7 +115,7 @@ fn modified_owned_model_is_preserved_and_blocks_reclaim() {
     document["models"]["rx-acme/model-a"]["model"] = value("user-model");
     fs::write(&path, document.to_string()).unwrap();
     let error = seed(&path, "rx-acme", "rx-secret", &models).unwrap_err();
-    assert!(error.to_string().contains("outside rx ownership"), "{error:#}");
+    assert!(error.to_string().contains("outside Rx ownership"), "{error:#}");
     let document = read_config(&path);
     assert_eq!(document["models"]["rx-acme/model-a"]["model"].as_str(), Some("user-model"));
 }
