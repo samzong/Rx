@@ -4,126 +4,72 @@ This is the normative Rx contract. Conflicting code is a bug, not precedent.
 
 ## Principles
 
-- Native first: Rx executes the installed harness and preserves its behavior.
-- User ownership: users own harness installation, sessions, and unowned config.
-- Scoped adaptation: inject at launch; persist only when the harness requires it.
-- Explicit ownership: location or matching content never proves Rx ownership.
-- Harness fidelity: do not force different CLIs through a behavior-changing
-  common abstraction.
-- No inference: missing product decisions require the owner; agents do not
-  invent defaults or boundaries.
+- Own the parts that gain value as models improve: tools, context, session
+  data, and evals. Borrow commodity plumbing: provider adapters, protocols,
+  and sandboxes.
+- Usable every day. A change that breaks daily use is a regression even when
+  tests pass.
+- Measured, not felt. Claims that Rx got better need eval or real-run evidence.
+- No inference of product decisions. Missing defaults, boundaries, or
+  persistence choices go to the owner.
 
-Rx owns provider selection, its credential store, generated catalogs, and the
-minimum adapter state needed to launch. It does not depend on Recall core or
-read `recall.db`.
+## Components
+
+| Module | Role |
+| --- | --- |
+| `src/agent.ts` | Builds the pi-agent-core `Agent`: system prompt, model stream, tools, and log subscription. |
+| `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
+| `src/session-log.ts` | Append-only JSONL session log, resume repair, and session listing. |
+| `src/models.ts` | Model and thinking-level resolution through pi-ai `Models`. |
+| `src/terminal.ts` | REPL and `-p` print mode. |
+| `src/acp.ts` | Agent Client Protocol server over stdio. |
+| `src/cli.ts` | Argument parsing and entrypoint. |
 
 ## Invariants
 
 | ID | Contract |
 | --- | --- |
-| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated installation. |
-| RX-INSTALL-001 | Run the official installer with the user's path-shaping environment. Manual and Rx installation must use the same command, environment, and location. |
-| RX-INSTALL-002 | Discovery, installation, and verification use the same user-owned harness home; hosted state never participates. |
-| RX-ARGS-001 | Preserve argv and executable paths as OS strings. Treat everything after `--` as literal. |
-| RX-ROUTE-001 | `--provider none` or no provider means native passthrough without provider or model injection. |
-| RX-ROUTE-002 | Inject only the selected route, credential reference, model, and permission policy; preserve unrelated native behavior. |
-| RX-MINIMAL-001 | Injection is launch-scoped (flags, child environment, launch overlays). Rx never redirects, replaces, or hides a harness's user-owned home or configuration discovery path in any mode, and never mutates user-owned configuration beyond marker-owned entries. |
-| RX-CATALOG-001 | Runtime model discovery decides availability only. Protocol-scoped model capabilities come from the bundled provider snapshot and apply only to the matching provider endpoint; unknown capabilities are never inferred. |
-| RX-OWN-001 | Mutate only explicitly Rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
-| RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
-| RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
-| RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
-| RX-CONCURRENCY-001 | Concurrent launches cannot retarget, corrupt, or delete another launch or user edit. |
-| RX-FAIL-001 | Non-interactive runs never install or destructively repair without approval; malformed user config is preserved and reported. |
+| RX-CORE-001 | The agent loop is pi-agent-core's `Agent`, constructed only in `src/agent.ts`. Model calls go through pi-ai `Models`. Replacing either requires eval evidence and an owner decision. |
+| RX-LOG-001 | Every message that enters the agent context is appended to the session log with its real origin: `cli`, `acp`, `model`, `tool`, or `rx`. The only exception is the initial system prompt, which is regenerated on every start. Rx never rewrites or deletes a complete log line; the only permitted change is truncating an unterminated final fragment (RX-LOG-002). |
+| RX-LOG-002 | A log starts with a versioned header. Only newline-terminated lines count. Rx rejects unknown versions and fails on any corrupt terminated line. Opening a session to append truncates an unterminated final fragment first, and a failed append truncates its partial line. A new log version must keep reading every earlier version. |
+| RX-LOG-003 | One process writes a session at a time. Creating or opening a session atomically takes `sessions/<id>.lock` holding the owner pid. A lock held by a live process is an error that names the lock file; a lock left by a dead process is reclaimed. An open that fails releases the lock it took. `session/load` checks the session's `cwd` before taking the lock. If the dead owner's pid has been reused, the lock is not reclaimed and the user deletes the named file. Two processes reclaiming the same dead lock at the same moment can both proceed; Rx accepts this because it needs a crash followed by two simultaneous opens of that session. |
+| RX-RESUME-001 | Resume replays the logged messages under the current system prompt. Each tool call without a recorded result gets exactly one `rx`-origin error result stating that its side effects are unknown. Rx never re-runs it. |
+| RX-CANCEL-001 | Cancelling a turn (ACP `session/cancel`, Ctrl-C) kills the running tool's whole process group and ends the turn. A closed ACP connection, SIGTERM, or SIGHUP aborts running turns the same way and waits for them to be logged. `bash` completes when its shell exits, after a short grace period for output pipes, so background processes cannot hold a turn open. The log ends with an `aborted` assistant message and the ACP prompt returns `cancelled`. pi-ai can report an abort as `error`; Rx normalizes it. |
+| RX-SECRET-001 | Credentials come only from provider environment variables resolved by pi-ai. Rx itself never writes credentials to its config, logs, or argv. Tools inherit the full environment, including provider keys, and tool output is logged verbatim, so a command that prints a key puts it in the session log. Persisting credentials or filtering the tool environment requires an owner decision. |
+| RX-PRIVATE-001 | Session logs live under `$RX_HOME` (default `~/.rx`) with `0700` directories and `0600` files. Session logs and eval tasks never enter this repository. |
+| RX-PERM-001 | Tools run with the user's permissions and no sandbox. This is an owner decision for the prototype; a sandbox replaces it in a later phase. |
 
 ## Ownership
 
 | Surface | Owner | Rule |
 | --- | --- | --- |
-| `~/.recall/rx.toml`, `rx.keys`, `catalogs/` | Rx | Provider config, secret store, and endpoint-scoped catalog cache. |
-| Bundled provider and model capability snapshot | Rx release | Stable provider, endpoint, model, and protocol semantics; runtime discovery intersects but never rewrites them. |
-| Claude catalog caches | shared | Marker identity stays Rx-owned even if changed or deleted; preserve unmarked entries. |
-| Codex config | launch | Prefer `-c` and environment injection. |
-| OpenCode config | launch | Prefer `OPENCODE_CONFIG_CONTENT`; only warn about native auth conflicts. |
-| Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
-| DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
-| Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
-| Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
-
-Injection preference is: flags or environment, immutable launch config, then a
-narrowly merged owned entry. Convenience never justifies persistent mutation.
-
-Kimi launches hold shared file leases across native execution: inherited `flock`
-locks on Unix and inherited read handles denying write sharing on Windows.
-Identical complete
-catalog snapshots share one immutable lease identity derived from the snapshot
-fingerprint. The catalog marker records active and current snapshots; historical
-lease files alone never establish config ownership. A later launch may reclaim
-an exited snapshot's entries only when its lease permits an exclusive probe and
-the entries still match their ownership records. Active identities retain their
-original aliases; conflicting changes fail closed. Missing or malformed lease
-records do not prove that a launch exited. Empty lease files are retained and
-reused, so file growth follows distinct snapshots rather than launch count.
-Rx never truncates lease files. Only `rx providers logout` deletes them, and
-only for a catalog it has just purged after an exclusive probe proved it exited.
-
-Before migrating a version 1 Kimi catalog marker, the user must close every
-Kimi session started by an older Rx and explicitly confirm migration in a
-terminal. Rx never terminates those sessions. Non-interactive launches refuse
-migration, and older Rx versions cannot write the migrated marker. Rolling
-back Rx must preserve the new marker so older writers continue to fail closed.
-
-## Logout cascade
-
-`rx providers logout <provider>` removes the stored key and every Rx-owned
-entry that provider caused Rx to persist in a harness config: the Kimi provider
-and model entries plus their marker and exited leases, the Claude catalog caches
-and their markers, the Pi provider entry, the DSH launch overlay, and the
-generated catalog cache.
-
-Removal follows RX-OWN-001: an entry is removed only when a marker records Rx as
-its author and the on-disk value still matches the recorded payload. Entries
-without a marker, or edited since Rx wrote them, are preserved and reported by
-path so the user decides. Kimi is the only surface holding a literal credential,
-so an active lease there blocks removal. Logout is fail-closed: when any
-credential surface still holds a copy of the key, Rx keeps its own stored key
-too, names the blocker, and tells the user to rerun logout. A logout that
-removes the stored key therefore means no Rx-written copy of that key is left
-behind.
-
-Hosted order is: select harness, discover or install in the user environment,
-validate route conflicts, execute with the same launch-scoped injection as a
-native `rx` / `rxc` launch, permission flags included. Route checks stop at
-`--`.
-
-## Adding a harness
-
-Adding a harness requires an owner decision covering CLI name, alias, install,
-provider/model behavior, permissions, persistence, secrets, and hosted state.
-Implementation must cover:
-
-- enum, parser, help, picker, shortcuts, aliases, completions, Makefile, release;
-- official install, discovery, partial install, and non-interactive behavior;
-- provider/model precedence, `none`, `--`, resume, subcommands, and permissions;
-- config ownership, malformed input, locking, atomicity, cleanup, and concurrency;
-- credential transport, persistence, permissions, and redaction;
-- hosted capabilities, route guards, environment scopes, and documentation.
-
-Acceptance must prove native behavior, manual/Rx install parity, reuse of an
-existing installation, passthrough and provider routing, preservation of
-unowned config, hosted route integrity, real-TTY alias/picker behavior, and
-both `cargo test -p rx` and `make check`.
+| `$RX_HOME/config.json` | user | Rx reads `model` and `thinking`; it never writes the file. |
+| `$RX_HOME/sessions/<id>.jsonl` | Rx | Created and appended by Rx only. |
+| `$RX_HOME/sessions/<id>.lock` | Rx | Written while a process holds the session; removed when that process exits. |
+| Project `AGENTS.md` / `CLAUDE.md` | user | Read into the system prompt; `AGENTS.md` wins when both exist. Never written by Rx itself. |
+| Provider credentials | user | Read from the environment by pi-ai. |
 
 ## Change authority
 
-Agents may change internal structure, helpers, errors, caches, serialization,
-or tests when public behavior and all invariants stay unchanged.
+Agents may change internal structure, helpers, errors, prompts that do not
+change public behavior, and tests when all invariants hold.
 
-Owner approval and a matching contract update are required for harnesses,
-aliases, CLI semantics, defaults, install behavior, native config ownership,
-secret persistence, hosted overrides/protocol, or Rx-managed distribution.
+Owner approval and a matching update to this contract are required for CLI
+commands and flags, defaults (model, thinking level, tool set, limits), file
+locations and log format, credential persistence, permission or sandbox
+policy, replacing pi-agent-core or pi-ai, and releases.
 
-Before changing Rx: identify affected invariant IDs, trace `request -> install
--> plan -> config -> exec`, verify upstream native behavior, reproduce the
-failure, and review the final diff against this contract. Tests never excuse a
-contract mismatch.
+## Acceptance
+
+Every change passes `make check`.
+
+Changes to agent, tool, log, cancel, or ACP behavior also pass both real-model
+checks. Run them with a scratch `RX_HOME` and working directory, and pass the
+provider key through the environment of that run only.
+
+1. `rx -p "<task that needs tools>"` exits 0 with the expected answer, and
+   the log origins read `cli`, then `model`/`tool` pairs, then a final `model`
+   message.
+2. `node scripts/acp-smoke.ts [provider/id]` reports `end_turn` for the file
+   read, `cancelled` for the cancelled `sleep`, and lists the session. The log
+   ends with an `aborted` assistant message.

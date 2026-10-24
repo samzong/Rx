@@ -1,10 +1,20 @@
 # Rx
 
-`rx` launches Claude Code, Codex, OpenCode, Pi, DeepSeek Harness, and Kimi Code with one provider configuration. It prepares each harness and runs its native CLI.
+Rx is a personal coding agent. It runs in a terminal or behind any editor that
+speaks the [Agent Client Protocol](https://agentclientprotocol.com), works in
+your local directory with four tools (`read`, `write`, `edit`, `bash`), and
+keeps every session as an append-only log you can resume.
 
-[![Rx architecture](assets/rx-architecture.png)](assets/rx-architecture.png)
+The agent loop comes from
+[pi-agent-core](https://github.com/earendil-works/pi) and model access from
+pi-ai, so any provider that pi-ai supports works with an API key in the
+environment.
+
+The previous Rust launcher is preserved at tag `v0.1.0`.
 
 ## Install
+
+Requires Node 22.19 or later (CI uses Node 24) and pnpm.
 
 ```bash
 git clone https://github.com/samzong/Rx.git
@@ -12,67 +22,49 @@ cd Rx
 make install
 ```
 
+`make install` links `rx` into `~/.local/bin`; set `PREFIX` to change it.
+
 ## Usage
 
 ```bash
-rx providers login
-rx codex
-rx --provider openrouter opencode
-rx --provider none claude
-rx dsh web
-rx kimi
+export DEEPSEEK_API_KEY=...
+rx -m deepseek/deepseek-flash            # interactive session
+rx -m deepseek/deepseek-flash -p "..."   # one prompt, then exit
+rx -c                                    # continue the latest session here
+rx -r <session-id>                       # resume a session
+rx sessions [--all]                      # list sessions
+rx models                                # list models with credentials
+rx acp                                   # serve ACP on stdio
 ```
 
-Running `rx` without a harness opens the picker; `tab` there picks a configured provider for that launch only, leaving the default unchanged. Arguments after the harness name are passed to that harness.
-For Kimi Code, `rx` seeds the selected provider and its cached models as `rx-<provider>/<model>` aliases in Kimi's native catalog. `--model <id>` selects one of those models. Without it or a provider-level `model` in `rx.toml`, `rx` uses the first cached provider model and reports that choice on stderr. Rx-owned entries are refreshed only while their payload remains unchanged; native and user-edited entries are preserved. Kimi requires catalog credentials in its config, so the selected provider key is also stored in Kimi's local `config.toml` with secret-only file permissions.
+The model comes from `-m`, then `RX_MODEL`, then `model` in
+`~/.rx/config.json`. `--thinking` sets the reasoning level (default `medium`).
+Project instructions are read from `AGENTS.md`, or `CLAUDE.md` if there is no
+`AGENTS.md`.
 
-Concurrent `rx kimi` launches retain their catalog aliases until they exit. A later
-launch reclaims unchanged entries no longer used by a running launch. Changing
-an active alias to a different route fails; close the launch using that alias
-before retrying. Identical catalog snapshots reuse a shared lease file; empty
-lease files are retained as catalogs change, without automatic cleanup.
+Tools run with your permissions and no sandbox.
 
-When upgrading from a version 1 Kimi catalog marker, first close all Kimi
-sessions started by older Rx versions. Run the same `rx kimi` command in a
-terminal and type `migrate` when prompted to confirm those sessions have exited.
-Declining the prompt or running without a terminal leaves the existing catalog
-unchanged. Older Rx versions cannot update the migrated catalog. Keep the
-catalog marker and lease files in place, including when rolling back Rx.
+### Editor setup
 
-| Harness | Commands |
+Configure your ACP client to start `rx acp`, with `RX_MODEL` and the provider
+API key in its environment.
+
+## Files
+
+| Path | Content |
 | --- | --- |
-| Claude Code | `rx claude`, `rxc` |
-| Codex | `rx codex`, `rxx` |
-| OpenCode | `rx opencode`, `rxo` |
-| Pi | `rx pi`, `rxp` |
-| DeepSeek Harness | `rx dsh`, `rxd` |
-| Kimi Code | `rx kimi`, `rxk` |
+| `$RX_HOME/config.json` | `{"model": "provider/id", "thinking": "medium"}` |
+| `$RX_HOME/sessions/<id>.jsonl` | Session logs, private to your user |
+| `$RX_HOME/sessions/<id>.lock` | Pid of the process using the session |
 
-Provider commands:
-
-```bash
-rx providers list
-rx providers use <provider>
-rx providers models update [provider]
-rx providers logout <provider>
-```
-
-Bundled provider metadata is compiled into the binary. Live model catalogs come from the selected provider and are cached under `~/.recall/catalogs/` for one hour. Custom provider configuration and admission requirements are documented in [PROVIDERS.md](docs/PROVIDERS.md).
+`RX_HOME` defaults to `~/.rx`.
 
 ## Development
 
-Install Rust and cargo-audit 0.22.2, then run:
-
 ```bash
-cargo install cargo-audit --locked --version 0.22.2
+make deps
 make check
-make build
 ```
 
-`make install` installs `rx` and its six shortcuts into the Cargo bin directory.
-Shell completions are available through `rx completions bash|zsh|fish`.
-The GitHub release workflow builds the four supported targets from the checked tag.
-
-See [DESIGN.md](docs/DESIGN.md) for native behavior and ownership rules,
-[PROVIDERS.md](docs/PROVIDERS.md) for provider admission, and
-[HOSTING.md](docs/HOSTING.md) for the embedding protocol.
+See [DESIGN.md](docs/DESIGN.md) for invariants and acceptance checks and
+[ROADMAP.md](ROADMAP.md) for what comes next.
