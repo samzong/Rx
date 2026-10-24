@@ -1,12 +1,12 @@
 {
-  "name": "rx",
+  "name": "rx-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Rx: a personal coding agent built on pi-agent-core and pi-ai",
+  "description": "rx-agent: the Rx coding agent built on pi-agent-core and pi-ai",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "rx": "src/cli.ts"
+    "rx-agent": "src/cli.ts"
   },
   "engines": {
     "node": ">=22.19"

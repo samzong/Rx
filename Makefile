@@ -1,25 +1,46 @@
-PREFIX ?= $(HOME)/.local
-BIN := $(PREFIX)/bin
+CARGO := cargo
+CARGO_BIN := $(or $(CARGO_HOME),$(HOME)/.cargo)/bin
+ALIASES := rxc rxx rxo rxp rxd rxk
+AGENT := target/rx-agent
 
-.PHONY: deps check audit typecheck test install uninstall
+.PHONY: build release check audit fmt lint test agent agent-deps agent-check install uninstall
 
-deps:
-	pnpm install --frozen-lockfile
+build:
+	$(CARGO) build --locked
 
-check: audit typecheck test
+release:
+	$(CARGO) build --locked --release
+
+check: audit fmt lint test
 
 audit:
-	pnpm audit
+	$(CARGO) audit --file Cargo.lock
 
-typecheck:
-	pnpm -s typecheck
+fmt:
+	$(CARGO) fmt --all -- --check
+
+lint:
+	$(CARGO) clippy --locked --all-targets -- -D warnings
 
 test:
-	pnpm -s test
+	$(CARGO) test --locked
 
-install: deps
-	mkdir -p "$(BIN)"
-	ln -sfn "$(CURDIR)/src/cli.ts" "$(BIN)/rx"
+agent-deps:
+	cd agent && pnpm install --frozen-lockfile
+
+agent-check: agent-deps
+	cd agent && pnpm audit && pnpm typecheck && pnpm test
+
+agent: agent-deps
+	cd agent && bun build --compile src/cli.ts --outfile ../$(AGENT)
+
+install: agent
+	$(CARGO) install --path . --locked
+	install -m 755 $(AGENT) "$(CARGO_BIN)/rx-agent"
+	@for name in $(ALIASES); do ln -sfn rx "$(CARGO_BIN)/$$name"; done
+	@if [ -d "$(HOME)/.zsh/completions" ]; then "$(CARGO_BIN)/rx" completions zsh > "$(HOME)/.zsh/completions/_rx"; fi
 
 uninstall:
-	rm -f "$(BIN)/rx"
+	$(CARGO) uninstall rx
+	rm -f "$(CARGO_BIN)/rx-agent"
+	@for name in $(ALIASES); do rm -f "$(CARGO_BIN)/$$name"; done

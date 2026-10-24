@@ -34,7 +34,7 @@ export async function resolveModel(models: Models, spec: string | undefined, thi
   const id = spec.slice(slash + 1);
   if (!models.getProvider(provider)) throw new Error(`unknown provider "${provider}"`);
   const model = models.getModel(provider, id);
-  if (!model) throw new Error(`unknown model "${id}" for provider "${provider}"; run "rx models" to list models`);
+  if (!model) throw new Error(`unknown model "${id}" for provider "${provider}"; run "rx-agent models" to list models`);
   if (!(await models.checkAuth(provider))) {
     throw new Error(`no credentials for provider "${provider}"; set its API key environment variable`);
   }

@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach binaries to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_REF: refs/tags/${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: -Dwarnings
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Validate release tag
+        id: release
+        shell: bash
+        run: |
+          set -eu
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$version" ] || [ "$RELEASE_TAG" != "v$version" ]; then
+            echo "::error::release tag $RELEASE_TAG does not match Cargo.toml version ${version:-missing}"
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]; then
+            echo "::error::checked out commit does not match release tag $RELEASE_TAG"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+          save-if: false
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: make check
+
+  build:
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      upload: true
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - uses: actions/download-artifact@v5
+        with:
+          merge-multiple: true
+      - name: Verify release commit
+        shell: bash
+        env:
+          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          set -eu
+          if [ "$(git rev-parse HEAD)" != "$VALIDATED_SHA" ]; then
+            echo "::error::release tag moved after validation"
+            exit 1
+          fi
+          for built in rx-*.sha; do
+            sha="$(tr -d '[:space:]' < "$built")"
+            if [ "$sha" != "$VALIDATED_SHA" ]; then
+              echo "::error::$built was built from $sha, not from validated commit $VALIDATED_SHA"
+              exit 1
+            fi
+          done
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$RELEASE_TAG"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" --clobber rx-*.tar.gz rx-*.zip
+          else
+            gh release create "$tag" --title "$tag" --generate-notes rx-*.tar.gz rx-*.zip
+          fi

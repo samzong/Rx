@@ -2,23 +2,25 @@
 import { constants } from "node:os";
 import { parseArgs } from "node:util";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import type { Models } from "@earendil-works/pi-ai";
 import { createRxAgent } from "./agent.ts";
 import { serveAcp } from "./acp.ts";
 import { loadConfig, rxHome } from "./config.ts";
 import { formatModel, resolveModel, type ModelChoice } from "./models.ts";
+import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
 import { VERSION } from "./version.ts";
 
-const HELP = `rx ${VERSION} - a personal coding agent
+const HELP = `rx-agent ${VERSION} - the Rx coding agent
 
 Usage:
-  rx [options]               start an interactive session in the current directory
-  rx -p <prompt> [options]   run one prompt and exit
-  rx acp                     serve the Agent Client Protocol on stdio
-  rx models                  list models that have credentials
-  rx sessions [--all]        list saved sessions for this directory
+  rx-agent [options]               start an interactive session in the current directory
+  rx-agent -p <prompt> [options]   run one prompt and exit
+  rx-agent acp                     serve the Agent Client Protocol on stdio
+  rx-agent models                  list models that have credentials
+  rx-agent sessions [--all]        list saved sessions for this directory
+
+\`rx agent\` and \`rxx\` start rx-agent with the selected rx provider.
 
 Options:
   -m, --model <provider/id>  model to use (default: RX_MODEL, then "model" in config.json)
@@ -66,12 +68,14 @@ async function main(argv: string[]): Promise<number> {
 
   const home = rxHome();
   const config = loadConfig(home);
-  const models: Models = builtinModels();
+  const models = builtinModels();
+  const handoff = process.env[PROVIDER_ENV];
+  if (handoff) applyHandoff(models, parseHandoff(handoff));
   const choose = (): Promise<ModelChoice> =>
     resolveModel(models, values.model ?? (process.env.RX_MODEL || undefined) ?? config.model, values.thinking ?? config.thinking);
   const command = positionals[0];
   if (positionals.length > 1 || (command && !["acp", "models", "sessions"].includes(command))) {
-    throw new Error(`unexpected argument "${positionals.at(-1)}"; see rx --help`);
+    throw new Error(`unexpected argument "${positionals.at(-1)}"; see rx-agent --help`);
   }
 
   if (command === "acp") {
@@ -121,7 +125,7 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    process.stderr.write(`rx: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`rx-agent: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   },
 );
