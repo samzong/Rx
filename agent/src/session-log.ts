@@ -1,7 +1,8 @@
-import { appendFileSync, chmodSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { uuidv7, type ToolResultMessage } from "@earendil-works/pi-ai";
+import { isAlive, tryLink } from "./pid-lock.ts";
 
 export type Origin = "cli" | "acp" | "model" | "tool" | "rx";
 
@@ -83,27 +84,8 @@ function releaseLocks(): void {
   heldLocks.clear();
 }
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 function lockPath(home: string, id: string): string {
   return join(sessionsDir(home), `${id}.lock`);
-}
-
-function tryLink(temp: string, path: string): boolean {
-  try {
-    linkSync(temp, path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return false;
-  }
 }
 
 function lockSession(home: string, id: string): boolean {

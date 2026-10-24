@@ -116,8 +116,9 @@ pub(crate) fn rewrite_argv0(mut args: Vec<OsString>) -> Vec<OsString> {
 pub(crate) fn argv0_harness(argv0: impl AsRef<OsStr>) -> Option<&'static str> {
     let name = Path::new(argv0.as_ref()).file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
     match name {
+        "rxa" => Some("agent"),
         "rxc" => Some("claude"),
-        "rxx" => Some("agent"),
+        "rxx" => Some("codex"),
         "rxo" => Some("opencode"),
         "rxp" => Some("pi"),
         "rxd" => Some("dsh"),

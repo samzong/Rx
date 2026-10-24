@@ -9,7 +9,7 @@ const BASH: &str = r#"_rx_bin() {
   local invoked=${COMP_WORDS[0]}
   local name=${invoked##*/}
   case $name in
-    rxc|rxx|rxo|rxp|rxd|rxk)
+    rxa|rxc|rxx|rxo|rxp|rxd|rxk)
       if [[ $invoked == */* ]]; then
         printf '%s' "${invoked%/*}/rx"
       else
@@ -90,7 +90,7 @@ _rx() {
   done < <(_rx_positionals)
 
   case $cmd in
-    rxc|rxx|rxo|rxp|rxd|rxk)
+    rxa|rxc|rxx|rxo|rxp|rxd|rxk)
       if [[ $cur == -* ]] && ! _rx_has_provider; then
         COMPREPLY=($(compgen -W '--provider' -- "$cur"))
       fi
@@ -152,16 +152,16 @@ _rx() {
   esac
 }
 
-complete -F _rx rx rxc rxx rxo rxp rxd rxk
+complete -F _rx rx rxa rxc rxx rxo rxp rxd rxk
 "#;
 
-const ZSH: &str = r#"#compdef rx rxc rxx rxo rxp rxd rxk
+const ZSH: &str = r#"#compdef rx rxa rxc rxx rxo rxp rxd rxk
 
 _rx_bin() {
   local invoked=$words[1]
   local name=${invoked:t}
   case $name in
-    rxc|rxx|rxo|rxp|rxd|rxk)
+    rxa|rxc|rxx|rxo|rxp|rxd|rxk)
       if [[ $invoked == */* ]]; then
         print -rn -- ${invoked:h}/rx
       else
@@ -236,7 +236,7 @@ _rx() {
   [[ -n $output ]] && pos=(${(f)output})
 
   case $cmd in
-    rxc|rxx|rxo|rxp|rxd|rxk)
+    rxa|rxc|rxx|rxo|rxp|rxd|rxk)
       if [[ $cur == -* ]] && ! _rx_has_provider; then
         compadd -- --provider
       fi
@@ -299,14 +299,14 @@ _rx() {
   esac
 }
 
-compdef _rx rx rxc rxx rxo rxp rxd rxk
+compdef _rx rx rxa rxc rxx rxo rxp rxd rxk
 "#;
 
 const FISH: &str = r#"function __rx_bin
     set -l invoked (commandline -opc)[1]
     set -l name (basename $invoked)
     switch $name
-        case rxc rxx rxo rxp rxd rxk
+        case rxa rxc rxx rxo rxp rxd rxk
             if string match -q '*/*' -- $invoked
                 echo (dirname $invoked)/rx
             else
@@ -408,7 +408,7 @@ complete -c rx -n '__rx_is providers models update; and __rx_n 3' -a '(__rx_ids 
 complete -c rx -n '__rx_is update; and __rx_n 1' -l yes -s y
 complete -c rx -n '__rx_is completions; and __rx_n 1' -a 'bash zsh fish'
 
-for cmd in rxc rxx rxo rxp rxd rxk
+for cmd in rxa rxc rxx rxo rxp rxd rxk
     complete -c $cmd -f
     complete -c $cmd -l provider -xa '(__rx_ids --targets)'
 end

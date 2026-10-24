@@ -2,7 +2,7 @@
 
 Rx launches its own coding agent, rx-agent, alongside six native CLIs. rx-agent
 is built from [`agent/`](agent/) on pi-agent-core and pi-ai, is the first picker
-entry, and owns `rxx`. Provider maintenance and external harness contributions
+entry, and owns `rxa`. Provider maintenance and external harness contributions
 continue throughout. Every piece of agent work maps to a real use or an eval
 task; work that maps to neither waits.
 
@@ -29,13 +29,6 @@ The maintainer adds harnesses they use; contributors can add others. There is
 no fixed shortlist. Each integration must meet DESIGN's installation, routing,
 permissions, ownership, secrets, hosted-mode, and native acceptance requirements.
 
-### Subscriptions
-
-Rx does not implement subscription authentication, token extraction or refresh,
-or subscription-sharing gateways. Harnesses keep their native subscription
-support. Recommend [Magpie](https://github.com/yetone/magpie) for cross-agent
-subscription sharing; it remains an external tool.
-
 ## Phase 1
 
 Two lines that can run in parallel. Line A merges first; line B rebases onto it.
@@ -48,8 +41,10 @@ Two lines that can run in parallel. Line A merges first; line B rebases onto it.
 - [x] Resume that closes interrupted tool calls without re-running them.
 - [x] CLI: REPL, `-p`, `models`, `sessions`, `--resume`, `--continue`.
 - [x] ACP server with load, list, cancel, and streaming tool updates.
-- [x] Launch through `rx agent` and `rxx` with Rx's provider configuration,
+- [x] Launch through `rx agent` and `rxa` with Rx's provider configuration,
   credentials, and catalogs; single-file binary through `bun build --compile`.
+- [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
+  independent of rx providers.
 - [ ] Ship rx-agent in the release workflow and `rx update`.
 - [ ] Run rx-agent through ACP in Lody, or Zed if Lody cannot host a custom agent.
 

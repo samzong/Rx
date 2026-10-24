@@ -27,17 +27,17 @@ use crate::ui::{Palette, truncate};
 #[derive(Clone, Copy)]
 struct Choice {
     harness: Harness,
-    shortcut: Option<char>,
+    shortcut: char,
 }
 
 const CHOICES: [Choice; 7] = [
-    Choice { harness: Harness::Agent, shortcut: Some('x') },
-    Choice { harness: Harness::Claude, shortcut: Some('c') },
-    Choice { harness: Harness::Codex, shortcut: None },
-    Choice { harness: Harness::OpenCode, shortcut: Some('o') },
-    Choice { harness: Harness::Pi, shortcut: Some('p') },
-    Choice { harness: Harness::Dsh, shortcut: Some('d') },
-    Choice { harness: Harness::Kimi, shortcut: Some('k') },
+    Choice { harness: Harness::Agent, shortcut: 'a' },
+    Choice { harness: Harness::Claude, shortcut: 'c' },
+    Choice { harness: Harness::Codex, shortcut: 'x' },
+    Choice { harness: Harness::OpenCode, shortcut: 'o' },
+    Choice { harness: Harness::Pi, shortcut: 'p' },
+    Choice { harness: Harness::Dsh, shortcut: 'd' },
+    Choice { harness: Harness::Kimi, shortcut: 'k' },
 ];
 
 fn hosted_choices() -> Vec<Choice> {
@@ -135,11 +135,7 @@ impl App {
             {
                 self.choices
                     .iter()
-                    .find(|choice| {
-                        choice
-                            .shortcut
-                            .is_some_and(|shortcut| shortcut.eq_ignore_ascii_case(&character))
-                    })
+                    .find(|choice| choice.shortcut.eq_ignore_ascii_case(&character))
                     .map_or(PickerAction::Continue, |choice| PickerAction::Launch(choice.harness))
             }
             _ => PickerAction::Continue,
@@ -287,20 +283,14 @@ fn harness_lines(app: &App, palette: &Palette) -> Vec<Line<'static>> {
         let marker = if selected { "→ " } else { "  " };
         lines.push(Line::from(vec![
             Span::styled(marker, palette.accent),
-            Span::styled(if choice.shortcut.is_some() { "[" } else { " " }, palette.muted),
-            Span::styled(
-                choice.shortcut.map_or_else(|| " ".to_string(), String::from),
-                (palette.accent, Modifier::BOLD),
-            ),
-            Span::styled(if choice.shortcut.is_some() { "] " } else { "  " }, palette.muted),
+            Span::styled("[", palette.muted),
+            Span::styled(choice.shortcut.to_string(), (palette.accent, Modifier::BOLD)),
+            Span::styled("] ", palette.muted),
             Span::styled(
                 format!("{:<10}", choice.harness.as_str()),
                 Style::default().fg(if selected { palette.accent } else { palette.primary }),
             ),
-            Span::styled(
-                choice.shortcut.map_or_else(String::new, |shortcut| format!("rx{shortcut}")),
-                palette.muted,
-            ),
+            Span::styled(format!("rx{}", choice.shortcut), palette.muted),
         ]));
     }
     if let Some(label) = app.provider_label() {
@@ -385,24 +375,21 @@ mod tests {
     fn shortcuts_launch_matching_harnesses() {
         let mut app = app();
         for choice in CHOICES {
-            let Some(shortcut) = choice.shortcut else {
-                continue;
-            };
-            let key = KeyEvent::new(KeyCode::Char(shortcut), KeyModifiers::NONE);
+            let key = KeyEvent::new(KeyCode::Char(choice.shortcut), KeyModifiers::NONE);
             assert_eq!(app.handle_key(key), PickerAction::Launch(choice.harness));
 
-            let key =
-                KeyEvent::new(KeyCode::Char(shortcut.to_ascii_uppercase()), KeyModifiers::SHIFT);
+            let key = KeyEvent::new(
+                KeyCode::Char(choice.shortcut.to_ascii_uppercase()),
+                KeyModifiers::SHIFT,
+            );
             assert_eq!(app.handle_key(key), PickerAction::Launch(choice.harness));
         }
     }
 
     #[test]
-    fn the_agent_leads_the_picker_and_owns_x() {
+    fn the_agent_leads_the_picker() {
         let mut app = app();
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
-        let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
-        assert_eq!(app.handle_key(key), PickerAction::Launch(Harness::Agent));
     }
 
     #[test]
@@ -410,7 +397,7 @@ mod tests {
         let mut app = App::new(hosted_choices(), Vec::new(), None);
         assert!(app.choices.iter().all(|choice| choice.harness != Harness::Agent));
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Claude));
-        let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         assert_eq!(app.handle_key(key), PickerAction::Continue);
     }
 

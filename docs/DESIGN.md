@@ -55,7 +55,7 @@ under the rules in [rx-agent](#rx-agent).
 | Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
-| `$RX_HOME` (default `~/.rx`) | rx-agent | Sessions and rx-agent config; the launcher never reads or writes it. |
+| `$RX_HOME` (default `~/.rx`) | rx-agent | Sessions, rx-agent config, and rx-agent's own credentials (`auth.json`, `device-id`), independent of `rx.keys`; the launcher never reads or writes it. |
 | Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
 Injection preference is: flags or environment, immutable launch config, then a
@@ -106,10 +106,10 @@ native `rx` / `rxc` launch, permission flags included. Route checks stop at
 
 ## rx-agent
 
-`rx agent` and `rxx` launch rx-agent; it is the first picker entry with
-shortcut `x`. Codex keeps `rx codex` and has no shortcut. With `--provider
-none`, rx-agent runs as-is under RX-ROUTE-001 and resolves models through its
-own pi-ai configuration. Rx applies no permission flags; rx-agent's tool policy
+`rx agent` and `rxa` launch rx-agent; it is the first picker entry with
+shortcut `a`. Codex keeps `rxx` and shortcut `x`. With `--provider none`,
+rx-agent runs as-is under RX-ROUTE-001 and resolves models through its own
+pi-ai configuration and the credentials it stores with `rx-agent login`. Rx applies no permission flags; rx-agent's tool policy
 is RX-PERM-001 in its own contract. Hosted mode does not launch rx-agent and
 the hosted picker omits it.
 

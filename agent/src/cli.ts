@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { constants } from "node:os";
 import { parseArgs } from "node:util";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createRxAgent } from "./agent.ts";
 import { serveAcp } from "./acp.ts";
 import { loadConfig, rxHome } from "./config.ts";
+import { deviceId, FileCredentialStore } from "./credentials.ts";
+import { login, terminalInteraction } from "./login.ts";
 import { formatModel, resolveModel, type ModelChoice } from "./models.ts";
 import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, SessionLog } from "./session-log.ts";
@@ -19,8 +22,10 @@ Usage:
   rx-agent acp                     serve the Agent Client Protocol on stdio
   rx-agent models                  list models that have credentials
   rx-agent sessions [--all]        list saved sessions for this directory
+  rx-agent login [provider]        sign in with a subscription or store an API key
+  rx-agent logout <provider>       remove stored credentials for a provider
 
-\`rx agent\` and \`rxx\` start rx-agent with the selected rx provider.
+\`rx agent\` and \`rxa\` start rx-agent with the selected rx provider.
 
 Options:
   -m, --model <provider/id>  model to use (default: RX_MODEL, then "model" in config.json)
@@ -33,6 +38,8 @@ Options:
 Files:
   $RX_HOME (default ~/.rx)/config.json   {"model": "provider/id", "thinking": "medium"}
   $RX_HOME/sessions/<id>.jsonl           append-only session logs
+  $RX_HOME/auth.json                     credentials stored by rx-agent login
+  $RX_HOME/device-id                     installation id sent to providers that require one
 `;
 
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -68,15 +75,43 @@ async function main(argv: string[]): Promise<number> {
 
   const home = rxHome();
   const config = loadConfig(home);
-  const models = builtinModels();
-  const handoff = process.env[PROVIDER_ENV];
-  if (handoff) applyHandoff(models, parseHandoff(handoff));
+  const command = positionals[0];
+  const auth = command === "login" || command === "logout";
+  if (
+    positionals.length > (auth ? 2 : 1) ||
+    (command && !auth && !["acp", "models", "sessions"].includes(command)) ||
+    (command === "logout" && positionals.length < 2)
+  ) {
+    throw new Error(command === "logout" && positionals.length < 2 ? "logout needs a provider; see rx-agent --help" : `unexpected argument "${positionals.at(-1)}"; see rx-agent --help`);
+  }
+
+  registerBunOAuthFlows();
+  const handoff = auth ? undefined : process.env[PROVIDER_ENV];
+  const launch = handoff ? parseHandoff(handoff) : undefined;
+  const credentials = new FileCredentialStore(home, launch?.id);
+  const models = builtinModels({ credentials });
+  if (launch) applyHandoff(models, launch);
+
+  if (command === "login") {
+    const interaction = terminalInteraction();
+    try {
+      const { provider } = await login(models, positionals[1], interaction, () => deviceId(home));
+      process.stderr.write(`logged in to ${provider.name}; credentials saved in ${credentials.path}\n`);
+    } finally {
+      interaction.close();
+    }
+    return 0;
+  }
+  if (command === "logout") {
+    const providerId = positionals[1]!;
+    if (!(await credentials.read(providerId))) throw new Error(`no stored credentials for "${providerId}" in ${credentials.path}`);
+    await models.logout(providerId);
+    process.stderr.write(`removed stored credentials for ${providerId}\n`);
+    return 0;
+  }
+
   const choose = (): Promise<ModelChoice> =>
     resolveModel(models, values.model ?? (process.env.RX_MODEL || undefined) ?? config.model, values.thinking ?? config.thinking);
-  const command = positionals[0];
-  if (positionals.length > 1 || (command && !["acp", "models", "sessions"].includes(command))) {
-    throw new Error(`unexpected argument "${positionals.at(-1)}"; see rx-agent --help`);
-  }
 
   if (command === "acp") {
     const server = serveAcp({ home, models, choose });
@@ -87,7 +122,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (command === "models") {
     const available = await models.getAvailable();
-    if (!available.length) process.stderr.write("no provider credentials found; set a provider API key environment variable\n");
+    if (!available.length) process.stderr.write("no provider credentials found; run rx-agent login or set a provider API key environment variable\n");
     for (const model of available) process.stdout.write(`${formatModel(model)}${model.reasoning ? "\treasoning" : ""}\n`);
     return 0;
   }

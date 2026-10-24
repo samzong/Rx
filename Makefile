@@ -1,6 +1,6 @@
 CARGO := cargo
 CARGO_BIN := $(or $(CARGO_HOME),$(HOME)/.cargo)/bin
-ALIASES := rxc rxx rxo rxp rxd rxk
+ALIASES := rxa rxc rxx rxo rxp rxd rxk
 AGENT := target/rx-agent
 
 .PHONY: build release check audit fmt lint test agent agent-deps agent-check install uninstall

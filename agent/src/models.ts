@@ -25,7 +25,7 @@ export async function resolveModel(models: Models, spec: string | undefined, thi
     const available = (await models.getAvailable()).map(formatModel);
     const hint = available.length
       ? `models with credentials: ${available.slice(0, 20).join(", ")}${available.length > 20 ? ", ..." : ""}`
-      : "no provider credentials found; set a provider API key environment variable";
+      : "no provider credentials found; run rx-agent login or set a provider API key environment variable";
     throw new Error(`no model selected; pass --model provider/id, set RX_MODEL, or set "model" in config.json (${hint})`);
   }
   const slash = spec.indexOf("/");
@@ -36,7 +36,7 @@ export async function resolveModel(models: Models, spec: string | undefined, thi
   const model = models.getModel(provider, id);
   if (!model) throw new Error(`unknown model "${id}" for provider "${provider}"; run "rx-agent models" to list models`);
   if (!(await models.checkAuth(provider))) {
-    throw new Error(`no credentials for provider "${provider}"; set its API key environment variable`);
+    throw new Error(`no credentials for provider "${provider}"; run rx-agent login ${provider} or set its API key environment variable`);
   }
   const level = parseThinking(thinking);
   return { model, thinking: level === "off" ? "off" : (clampThinkingLevel(model, level) as ThinkingLevel) };
