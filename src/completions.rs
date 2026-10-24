@@ -391,7 +391,7 @@ complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'pi' -d 'Pi'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'dsh' -d 'DeepSeek Harness'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'kimi' -d 'Kimi Code'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'providers' -d 'Manage providers'
-complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'update' -d 'Update rx'
+complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'update' -d 'Update Rx'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'completions' -d 'Generate shell completion script'
 complete -c rx -n '__rx_n 0; and __rx_has_provider' -a 'claude codex opencode pi dsh kimi'
 complete -c rx -n '__rx_n 0' -s h -l help

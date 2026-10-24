@@ -87,7 +87,7 @@ fn launch_request(
 
 fn help_text() -> &'static str {
     "\
-rx — launch agent harnesses through a configured AI provider
+Rx — launch agent harnesses through a configured AI provider
 
 Usage:
   rx

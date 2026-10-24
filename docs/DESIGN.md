@@ -1,19 +1,19 @@
-# rx Design Contract
+# Rx Design Contract
 
-This is the normative rx contract. Conflicting code is a bug, not precedent.
+This is the normative Rx contract. Conflicting code is a bug, not precedent.
 
 ## Principles
 
-- Native first: rx executes the installed harness and preserves its behavior.
+- Native first: Rx executes the installed harness and preserves its behavior.
 - User ownership: users own harness installation, sessions, and unowned config.
 - Scoped adaptation: inject at launch; persist only when the harness requires it.
-- Explicit ownership: location or matching content never proves rx ownership.
+- Explicit ownership: location or matching content never proves Rx ownership.
 - Harness fidelity: do not force different CLIs through a behavior-changing
   common abstraction.
 - No inference: missing product decisions require the owner; agents do not
   invent defaults or boundaries.
 
-rx owns provider selection, its credential store, generated catalogs, and the
+Rx owns provider selection, its credential store, generated catalogs, and the
 minimum adapter state needed to launch. It does not depend on Recall core or
 read `recall.db`.
 
@@ -21,18 +21,18 @@ read `recall.db`.
 
 | ID | Contract |
 | --- | --- |
-| RX-NATIVE-001 | Execute the installed native CLI, never an rx fork, bundled copy, or relocated installation. |
-| RX-INSTALL-001 | Run the official installer with the user's path-shaping environment. Manual and rx installation must use the same command, environment, and location. |
+| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated installation. |
+| RX-INSTALL-001 | Run the official installer with the user's path-shaping environment. Manual and Rx installation must use the same command, environment, and location. |
 | RX-INSTALL-002 | Discovery, installation, and verification use the same user-owned harness home; hosted state never participates. |
 | RX-ARGS-001 | Preserve argv and executable paths as OS strings. Treat everything after `--` as literal. |
 | RX-ROUTE-001 | `--provider none` or no provider means native passthrough without provider or model injection. |
 | RX-ROUTE-002 | Inject only the selected route, credential reference, model, and permission policy; preserve unrelated native behavior. |
-| RX-MINIMAL-001 | Injection is launch-scoped (flags, child environment, launch overlays). rx never redirects, replaces, or hides a harness's user-owned home or configuration discovery path in any mode, and never mutates user-owned configuration beyond marker-owned entries. |
+| RX-MINIMAL-001 | Injection is launch-scoped (flags, child environment, launch overlays). Rx never redirects, replaces, or hides a harness's user-owned home or configuration discovery path in any mode, and never mutates user-owned configuration beyond marker-owned entries. |
 | RX-CATALOG-001 | Runtime model discovery decides availability only. Protocol-scoped model capabilities come from the bundled provider snapshot and apply only to the matching provider endpoint; unknown capabilities are never inferred. |
-| RX-OWN-001 | Mutate only explicitly rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
+| RX-OWN-001 | Mutate only explicitly Rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
 | RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
-| RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; rx-only controls never reach the child. |
-| RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native rx launch; it never overrides any harness home, and hosted state holds rx-internal runtime state only. |
+| RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
+| RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
 | RX-CONCURRENCY-001 | Concurrent launches cannot retarget, corrupt, or delete another launch or user edit. |
 | RX-FAIL-001 | Non-interactive runs never install or destructively repair without approval; malformed user config is preserved and reported. |
 
@@ -40,15 +40,15 @@ read `recall.db`.
 
 | Surface | Owner | Rule |
 | --- | --- | --- |
-| `~/.recall/rx.toml`, `rx.keys`, `catalogs/` | rx | Provider config, secret store, and endpoint-scoped catalog cache. |
-| Bundled provider and model capability snapshot | rx release | Stable provider, endpoint, model, and protocol semantics; runtime discovery intersects but never rewrites them. |
-| Claude catalog caches | shared | Marker identity stays rx-owned even if changed or deleted; preserve unmarked entries. |
+| `~/.recall/rx.toml`, `rx.keys`, `catalogs/` | Rx | Provider config, secret store, and endpoint-scoped catalog cache. |
+| Bundled provider and model capability snapshot | Rx release | Stable provider, endpoint, model, and protocol semantics; runtime discovery intersects but never rewrites them. |
+| Claude catalog caches | shared | Marker identity stays Rx-owned even if changed or deleted; preserve unmarked entries. |
 | Codex config | launch | Prefer `-c` and environment injection. |
 | OpenCode config | launch | Prefer `OPENCODE_CONFIG_CONTENT`; only warn about native auth conflicts. |
 | Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
-| Kimi `config.toml` | shared | Use rx-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
-| Hosted state | host caller | rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
+| Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
+| Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
 Injection preference is: flags or environment, immutable launch config, then a
 narrowly merged owned entry. Convenience never justifies persistent mutation.
@@ -64,31 +64,31 @@ the entries still match their ownership records. Active identities retain their
 original aliases; conflicting changes fail closed. Missing or malformed lease
 records do not prove that a launch exited. Empty lease files are retained and
 reused, so file growth follows distinct snapshots rather than launch count.
-rx never truncates lease files. Only `rx providers logout` deletes them, and
+Rx never truncates lease files. Only `rx providers logout` deletes them, and
 only for a catalog it has just purged after an exclusive probe proved it exited.
 
 Before migrating a version 1 Kimi catalog marker, the user must close every
-Kimi session started by an older rx and explicitly confirm migration in a
-terminal. rx never terminates those sessions. Non-interactive launches refuse
-migration, and older rx versions cannot write the migrated marker. Rolling
-back rx must preserve the new marker so older writers continue to fail closed.
+Kimi session started by an older Rx and explicitly confirm migration in a
+terminal. Rx never terminates those sessions. Non-interactive launches refuse
+migration, and older Rx versions cannot write the migrated marker. Rolling
+back Rx must preserve the new marker so older writers continue to fail closed.
 
 ## Logout cascade
 
-`rx providers logout <provider>` removes the stored key and every rx-owned
-entry that provider caused rx to persist in a harness config: the Kimi provider
+`rx providers logout <provider>` removes the stored key and every Rx-owned
+entry that provider caused Rx to persist in a harness config: the Kimi provider
 and model entries plus their marker and exited leases, the Claude catalog caches
 and their markers, the Pi provider entry, the DSH launch overlay, and the
 generated catalog cache.
 
-Removal follows RX-OWN-001: an entry is removed only when a marker records rx as
+Removal follows RX-OWN-001: an entry is removed only when a marker records Rx as
 its author and the on-disk value still matches the recorded payload. Entries
-without a marker, or edited since rx wrote them, are preserved and reported by
+without a marker, or edited since Rx wrote them, are preserved and reported by
 path so the user decides. Kimi is the only surface holding a literal credential,
 so an active lease there blocks removal. Logout is fail-closed: when any
-credential surface still holds a copy of the key, rx keeps its own stored key
+credential surface still holds a copy of the key, Rx keeps its own stored key
 too, names the blocker, and tells the user to rerun logout. A logout that
-removes the stored key therefore means no rx-written copy of that key is left
+removes the stored key therefore means no Rx-written copy of that key is left
 behind.
 
 Hosted order is: select harness, discover or install in the user environment,
@@ -109,7 +109,7 @@ Implementation must cover:
 - credential transport, persistence, permissions, and redaction;
 - hosted capabilities, route guards, environment scopes, and documentation.
 
-Acceptance must prove native behavior, manual/rx install parity, reuse of an
+Acceptance must prove native behavior, manual/Rx install parity, reuse of an
 existing installation, passthrough and provider routing, preservation of
 unowned config, hosted route integrity, real-TTY alias/picker behavior, and
 both `cargo test -p rx` and `make check`.
@@ -121,9 +121,9 @@ or tests when public behavior and all invariants stay unchanged.
 
 Owner approval and a matching contract update are required for harnesses,
 aliases, CLI semantics, defaults, install behavior, native config ownership,
-secret persistence, hosted overrides/protocol, or rx-managed distribution.
+secret persistence, hosted overrides/protocol, or Rx-managed distribution.
 
-Before changing rx: identify affected invariant IDs, trace `request -> install
+Before changing Rx: identify affected invariant IDs, trace `request -> install
 -> plan -> config -> exec`, verify upstream native behavior, reproduce the
 failure, and review the final diff against this contract. Tests never excuse a
 contract mismatch.

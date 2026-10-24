@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Launch agent harnesses through a configured AI provider"
-repository = "https://github.com/samzong/rx"
+repository = "https://github.com/samzong/Rx"
 publish = false
 
 [dependencies]

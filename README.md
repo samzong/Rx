@@ -1,14 +1,14 @@
-# rx
+# Rx
 
 `rx` launches Claude Code, Codex, OpenCode, Pi, DeepSeek Harness, and Kimi Code with one provider configuration. It prepares each harness and runs its native CLI.
 
-[![rx architecture](assets/rx-architecture.png)](assets/rx-architecture.png)
+[![Rx architecture](assets/rx-architecture.png)](assets/rx-architecture.png)
 
 ## Install
 
 ```bash
-git clone https://github.com/samzong/rx.git
-cd rx
+git clone https://github.com/samzong/Rx.git
+cd Rx
 make install
 ```
 
@@ -24,7 +24,7 @@ rx kimi
 ```
 
 Running `rx` without a harness opens the picker; `tab` there picks a configured provider for that launch only, leaving the default unchanged. Arguments after the harness name are passed to that harness.
-For Kimi Code, `rx` seeds the selected provider and its cached models as `rx-<provider>/<model>` aliases in Kimi's native catalog. `--model <id>` selects one of those models. Without it or a provider-level `model` in `rx.toml`, `rx` uses the first cached provider model and reports that choice on stderr. RX-owned entries are refreshed only while their payload remains unchanged; native and user-edited entries are preserved. Kimi requires catalog credentials in its config, so the selected provider key is also stored in Kimi's local `config.toml` with secret-only file permissions.
+For Kimi Code, `rx` seeds the selected provider and its cached models as `rx-<provider>/<model>` aliases in Kimi's native catalog. `--model <id>` selects one of those models. Without it or a provider-level `model` in `rx.toml`, `rx` uses the first cached provider model and reports that choice on stderr. Rx-owned entries are refreshed only while their payload remains unchanged; native and user-edited entries are preserved. Kimi requires catalog credentials in its config, so the selected provider key is also stored in Kimi's local `config.toml` with secret-only file permissions.
 
 Concurrent `rx kimi` launches retain their catalog aliases until they exit. A later
 launch reclaims unchanged entries no longer used by a running launch. Changing
@@ -33,11 +33,11 @@ before retrying. Identical catalog snapshots reuse a shared lease file; empty
 lease files are retained as catalogs change, without automatic cleanup.
 
 When upgrading from a version 1 Kimi catalog marker, first close all Kimi
-sessions started by older rx versions. Run the same `rx kimi` command in a
+sessions started by older Rx versions. Run the same `rx kimi` command in a
 terminal and type `migrate` when prompted to confirm those sessions have exited.
 Declining the prompt or running without a terminal leaves the existing catalog
-unchanged. Older rx versions cannot update the migrated catalog. Keep the
-catalog marker and lease files in place, including when rolling back rx.
+unchanged. Older Rx versions cannot update the migrated catalog. Keep the
+catalog marker and lease files in place, including when rolling back Rx.
 
 | Harness | Commands |
 | --- | --- |
@@ -69,7 +69,7 @@ make check
 make build
 ```
 
-`make install` installs rx and its six shortcuts into the Cargo bin directory.
+`make install` installs `rx` and its six shortcuts into the Cargo bin directory.
 Shell completions are available through `rx completions bash|zsh|fish`.
 The GitHub release workflow builds the four supported targets from the checked tag.
 
