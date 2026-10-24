@@ -55,7 +55,7 @@ under the rules in [rx-agent](#rx-agent).
 | Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
-| `$RX_HOME` (default `~/.rx`) | rx-agent | Sessions, rx-agent config, and rx-agent's own credentials (`auth.json`, `device-id`), independent of `rx.keys`; the launcher never reads or writes it. |
+| `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json` and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
 | Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
 Injection preference is: flags or environment, immutable launch config, then a

@@ -1,9 +1,10 @@
+import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Models } from "@earendil-works/pi-ai";
-import { createRxAgent } from "./agent.ts";
+import { createRxAgent, systemPrompt } from "./agent.ts";
 import type { ModelChoice } from "./models.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { VERSION } from "./version.ts";
@@ -132,12 +133,18 @@ function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReaso
 
 export function createAcpApp(options: AcpOptions, sessions = new Map<string, LiveSession>()): acp.AgentApp {
 
-  const open = async (start: () => { log: SessionLog; messages: AgentMessage[] }): Promise<{ live: LiveSession; messages: AgentMessage[] }> => {
-    const choice = await options.choose().catch((error: unknown) => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[] }, requireCwd = false): Promise<{ live: LiveSession; messages: AgentMessage[] }> => {
+    let choice: ModelChoice;
+    let prompt: string;
+    try {
+      choice = await options.choose();
+      if (requireCwd) realpathSync(cwd);
+      prompt = systemPrompt(cwd);
+    } catch (error) {
       throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
-    });
+    }
     const { log, messages } = start();
-    const agent = createRxAgent({ ...choice, models: options.models, cwd: log.cwd, log, origin: "acp", messages });
+    const agent = createRxAgent({ ...choice, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages });
     const live = { agent, log, running: false, cancelled: false };
     sessions.set(log.id, live);
     return { live, messages };
@@ -162,13 +169,13 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       agentInfo: { name: "rx", title: "Rx", version: VERSION },
     }))
     .onRequest(acp.methods.agent.session.new, async ({ params }) => {
-      const { live } = await open(() => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }));
+      const { live } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), true);
       return { sessionId: live.log.id };
     })
     .onRequest(acp.methods.agent.session.load, async ({ params, client }) => {
       const { cwd } = readSessionHeader(options.home, params.sessionId);
       if (cwd !== params.cwd) throw acp.RequestError.invalidParams(undefined, `session ${params.sessionId} belongs to ${cwd}, not ${params.cwd}`);
-      const { messages } = await open(() => {
+      const { messages } = await open(cwd, () => {
         if (sessions.get(params.sessionId)?.running) throw acp.RequestError.invalidRequest(undefined, "session is running");
         return SessionLog.open(options.home, params.sessionId);
       });

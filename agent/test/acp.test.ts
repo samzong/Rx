@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
@@ -9,6 +9,9 @@ import { fauxAssistantMessage, fauxThinking, fauxText, fauxToolCall } from "@ear
 import { createAcpApp, historyUpdates, promptInput, type AcpOptions } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, foreignSession, tempDir } from "./helpers.ts";
+
+process.env.HOME = tempDir();
+process.env.RX_HOME = tempDir();
 
 function harness(choose?: AcpOptions["choose"]) {
   const { faux, models, model } = fauxModels();
@@ -171,6 +174,43 @@ test("failed session/new and session/load leave no files or locks behind", async
   assert.deepEqual(readdirSync(join(home, "sessions")), [`${id}.jsonl`]);
 });
 
+test("instruction failures neither create sessions nor lock or repair a loaded session, and retries recover", async (t) => {
+  const previousHome = process.env.RX_HOME;
+  const rxHome = tempDir();
+  process.env.RX_HOME = rxHome;
+  t.after(() => { process.env.RX_HOME = previousHome; });
+  const { faux, home, cwd, run } = harness();
+  const dangling = fauxAssistantMessage([fauxToolCall("read", { path: "notes.txt" }, { id: "pending" })], { stopReason: "toolUse" });
+  const { id, path, lock } = foreignSession(cwd, [["cli", { role: "user", content: "real task", timestamp: Date.now() }], ["model", dangling]], home);
+  appendFileSync(path, '{"torn":');
+  const before = readFileSync(path);
+  const instructions = join(rxHome, "AGENTS.md");
+  writeFileSync(instructions, "@./missing.md");
+  await run(async (ctx) => {
+    for (let retry = 0; retry < 3; retry++) {
+      const located = (error: Error) => error.message.includes("AGENTS.md:1:") && error.message.includes("missing.md");
+      await assert.rejects(newSession(ctx, cwd), located);
+      await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd, mcpServers: [] }), located);
+      assert.deepEqual(readdirSync(join(home, "sessions")), [`${id}.jsonl`]);
+      assert.deepEqual(readFileSync(path), before);
+      assert.equal(existsSync(lock), false);
+    }
+    const listed = await ctx.request(acp.methods.agent.session.list, { cwd });
+    assert.deepEqual(listed.sessions.map((session) => session.sessionId), [id]);
+    writeFileSync(join(rxHome, "missing.md"), "recovered instructions");
+    await ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd, mcpServers: [] });
+    faux.setResponses([fauxAssistantMessage("recovered")]);
+    const response = await ctx.request(acp.methods.agent.session.prompt, { sessionId: id, prompt: [{ type: "text", text: "continue" }] });
+    assert.equal(response.stopReason, "end_turn");
+    assert.ok(existsSync(lock));
+    const loaded = SessionLog.open(home, id);
+    assert.equal(loaded.messages.filter((message) => message.role === "toolResult").length, 1);
+    assert.equal(loaded.messages.at(-1)?.role, "assistant");
+    const created = await newSession(ctx, cwd);
+    assert.notEqual(created.sessionId, id);
+  });
+});
+
 test("replayed tool calls from an aborted message are shown as failed", () => {
   const aborted = fauxAssistantMessage([fauxToolCall("bash", { command: "make" }, { id: "x1" })], { stopReason: "aborted" });
   const [update] = historyUpdates("/work", [aborted]);
@@ -212,4 +252,23 @@ test("rx acp speaks ndjson over stdio", async () => {
   } finally {
     child.kill();
   }
+});
+
+test("load replays a session after its cwd is deleted while new rejects the missing cwd", async () => {
+  const { faux, home, cwd, run, updates } = harness();
+  const { id, path, lock } = foreignSession(cwd, [["cli", { role: "user", content: "saved task", timestamp: Date.now() }]], home);
+  const before = readFileSync(path);
+  rmSync(cwd, { recursive: true });
+  await run(async (ctx) => {
+    await assert.rejects(newSession(ctx, cwd));
+    assert.deepEqual(readdirSync(join(home, "sessions")), [`${id}.jsonl`]);
+    assert.equal(existsSync(lock), false);
+    assert.deepEqual(readFileSync(path), before);
+    await ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd, mcpServers: [] });
+    assert.ok(updates.some(({ update }) => update.sessionUpdate === "user_message_chunk"));
+    faux.setResponses([fauxAssistantMessage("continued without project tools")]);
+    const result = await ctx.request(acp.methods.agent.session.prompt, { sessionId: id, prompt: [{ type: "text", text: "continue" }] });
+    assert.equal(result.stopReason, "end_turn");
+  });
+  assert.deepEqual(readdirSync(join(home, "sessions")).filter((file) => file.endsWith(".jsonl")), [`${id}.jsonl`]);
 });
