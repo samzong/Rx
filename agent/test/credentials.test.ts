@@ -64,7 +64,7 @@ test("the provider handed off by an rx launch is hidden from the store", async (
   await assert.rejects(store.delete("acme"), /come from the rx launch/);
 
   const handoff = parseHandoff(
-    JSON.stringify({ id: "acme", name: "Acme", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", env: "ACME_CRED_TEST_KEY", models: [{ id: "m", contextWindow: 8000, reasoning: false }] }),
+    JSON.stringify({ id: "acme", name: "Acme", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", env: "ACME_CRED_TEST_KEY", models: [{ id: "m", contextWindow: 8000, reasoning: false }], defaultModel: "m" }),
   );
   const launched = builtinModels({ credentials: store });
   const unscoped = builtinModels({ credentials: new FileCredentialStore(home) });
