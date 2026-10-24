@@ -6,7 +6,9 @@ fn launch_syntax_preserves_harness_provider_and_literal_arguments() {
     type LaunchCase<'a> = (&'a [&'a str], Harness, Option<&'a str>, &'a [&'a str]);
     let cases: &[LaunchCase<'_>] = &[
         (&["/usr/local/bin/rxc", "fix login"], Claude, None, &["fix login"]),
-        (&["rxx", "exec", "cargo test"], Codex, None, &["exec", "cargo test"]),
+        (&["rxa", "-p", "cargo test"], Agent, None, &["-p", "cargo test"]),
+        (&["rx", "codex", "exec", "cargo test"], Codex, None, &["exec", "cargo test"]),
+        (&["rx", "agent", "--model", "m"], Agent, None, &["--model", "m"]),
         (&["rxc", "--provider", "acme"], Claude, Some("acme"), &[]),
         (
             &["rx", "--provider", "openrouter", "claude", "--resume", "abc"],
@@ -134,6 +136,7 @@ fn bash_completions_follow_argument_context() {
     );
     let cases: &[(&[&str], &[&str])] = &[
         (&["rx", "co"], &["codex", "completions"]),
+        (&["rx", "ag"], &["agent"]),
         (&["rx", "codex", "--prov"], &["--provider"]),
         (&["rx", "--provider", "open"], &["openrouter"]),
         (&["rx", "--provider=open"], &["--provider=openrouter"]),
@@ -170,7 +173,7 @@ fn bash_completions_follow_argument_context() {
     for (words, expected) in cases {
         check(words, expected);
     }
-    for alias in ["rxc", "rxx", "rxo", "rxp", "rxd", "rxk"] {
+    for alias in ["rxa", "rxc", "rxx", "rxo", "rxp", "rxd", "rxk"] {
         check(&[alias, "--prov"], &["--provider"]);
         check(&[alias, "--", "--prov"], &[]);
         check(&[alias, "--provider", "=", "open"], &["openrouter"]);
@@ -180,6 +183,7 @@ fn bash_completions_follow_argument_context() {
 #[test]
 fn argv0_harness_resolves_aliases() {
     assert_eq!(crate::args::argv0_harness("/usr/local/bin/rxc"), Some("claude"));
+    assert_eq!(crate::args::argv0_harness("rxa"), Some("agent"));
     assert_eq!(crate::args::argv0_harness("rxx"), Some("codex"));
     assert_eq!(crate::args::argv0_harness("rxo.exe"), Some("opencode"));
     assert_eq!(crate::args::argv0_harness("rxp"), Some("pi"));

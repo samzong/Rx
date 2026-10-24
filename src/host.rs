@@ -58,9 +58,9 @@ pub(crate) fn run(passthrough: Vec<OsString>, env: &EnvLookup) -> Result<()> {
     };
     let request = parse_request(&raw)?;
     let harness = match request.harness.as_deref() {
-        Some(name) => {
-            Harness::parse(name).ok_or_else(|| anyhow::anyhow!("unknown harness: {name}"))?
-        }
+        Some(name) => Harness::parse(name)
+            .filter(|harness| Harness::HOSTED.contains(harness))
+            .ok_or_else(|| anyhow::anyhow!("unknown harness: {name}"))?,
         None => match crate::pick::harness(env)? {
             Some(harness) => harness,
             None => return Ok(()),
@@ -93,7 +93,7 @@ fn capabilities_json() -> Result<String> {
     serde_json::to_string(&Capabilities {
         protocol: Protocol { major: 1, minor: 1 },
         version: crate::RELEASE_VERSION,
-        harnesses: Harness::ALL.iter().map(|harness| harness.as_str()).collect(),
+        harnesses: Harness::HOSTED.iter().map(|harness| harness.as_str()).collect(),
     })
     .context("failed to serialize host capabilities")
 }
@@ -186,6 +186,7 @@ fn validate_route_args(
         }
         Harness::Dsh => reject_flags(args, &["--profile", "--patch"]),
         Harness::Kimi => Ok(()),
+        Harness::Agent => bail!("hosted mode does not launch the rx agent"),
     }
 }
 

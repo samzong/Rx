@@ -1,3 +1,4 @@
+mod agent_routes;
 mod catalog_cache;
 mod claude_catalog;
 mod cli;

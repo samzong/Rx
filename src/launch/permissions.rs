@@ -49,7 +49,7 @@ pub(super) fn apply_yolo(request: &LaunchRequest, plan: &mut LaunchPlan, env: &E
             }
             (&["--auto"], 0)
         }
-        Harness::Pi | Harness::Dsh => return,
+        Harness::Agent | Harness::Pi | Harness::Dsh => return,
     };
     plan.args.splice(at..at, flags.iter().map(OsString::from));
     let note = format!(

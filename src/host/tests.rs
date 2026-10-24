@@ -39,6 +39,14 @@ fn host_entrypoint_rejects_malformed_requests() {
 }
 
 #[test]
+fn host_entrypoint_rejects_the_rx_agent() {
+    let env =
+        EnvLookup::isolated(HashMap::from([(REQUEST_ENV.to_string(), request(Some("agent")))]));
+    let error = run(Vec::new(), &env).unwrap_err();
+    assert_eq!(error.to_string(), "unknown harness: agent");
+}
+
+#[test]
 fn hosted_request_allows_missing_harness() {
     assert!(parse_request(&request(None)).unwrap().harness.is_none());
     assert_eq!(parse_request(&request(Some("codex"))).unwrap().harness.as_deref(), Some("codex"));

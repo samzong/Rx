@@ -1,5 +1,5 @@
-use super::super::take_model;
 use super::*;
+use crate::args::take_model;
 use std::ffi::OsString;
 use std::fs;
 

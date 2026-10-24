@@ -16,8 +16,21 @@ metadata, binaries, and release workflow.
 - Verify with `cargo test -p rx`, `make check`, and the affected native
   behavior checks required by `docs/DESIGN.md`.
 
+- `agent/` holds rx-agent, Rx's TypeScript coding agent on
+  `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`. Before changing
+  it, read `agent/DESIGN.md` and trace `input -> agent -> tools -> session log
+  -> output`. The launcher-side handoff is RX-AGENT-001..003 in
+  `docs/DESIGN.md`; change both sides together.
+- In `agent/`, use Node 22.19 or later and pnpm. Source runs directly as `.ts`
+  through Node type stripping; keep syntax erasable. `make agent-check` runs
+  `pnpm audit`, `tsc --noEmit`, and `node --test`; `make agent` compiles the
+  single-file binary with Bun. Keep `"private": true`.
+- Pass provider credentials only through the environment of the process under
+  test. Eval tasks and session logs stay outside the repository.
+
 - Keep `publish = false`; Rx ships as an application binary. The release owner
   chooses version bumps and publication.
-- `make check` is the CI gate: cargo-audit 0.22.2, format, Clippy and tests.
+- `make check` is the Rust CI gate: cargo-audit 0.22.2, format, Clippy and
+  tests. `make agent-check` is the agent CI gate.
 - Never add code comments or doc comments. Preserve unrelated work.
 - `.local/` is scratch and is not an architecture source.

@@ -17,11 +17,15 @@ Rx owns provider selection, its credential store, generated catalogs, and the
 minimum adapter state needed to launch. It does not depend on Recall core or
 read `recall.db`.
 
+rx-agent is the one first-party harness. It is built from `agent/`, whose own
+contract is [agent/DESIGN.md](../agent/DESIGN.md), and the launcher treats it
+under the rules in [rx-agent](#rx-agent).
+
 ## Invariants
 
 | ID | Contract |
 | --- | --- |
-| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated installation. |
+| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated installation. rx-agent is Rx's own CLI, not a fork (RX-AGENT-001). |
 | RX-INSTALL-001 | Run the official installer with the user's path-shaping environment. Manual and Rx installation must use the same command, environment, and location. |
 | RX-INSTALL-002 | Discovery, installation, and verification use the same user-owned harness home; hosted state never participates. |
 | RX-ARGS-001 | Preserve argv and executable paths as OS strings. Treat everything after `--` as literal. |
@@ -32,6 +36,9 @@ read `recall.db`.
 | RX-OWN-001 | Mutate only explicitly Rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
 | RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
 | RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
+| RX-AGENT-001 | `make install` installs the single-file `rx-agent` binary, compiled by `bun build --compile` from `agent/`, beside `rx`. Rx resolves it from `PATH`, then beside the running `rx`, and never downloads or installs it; when it is missing, Rx fails and names `make install`. |
+| RX-AGENT-002 | A provider launch hands rx-agent only the child environment: the provider key under the provider's `env` name, `RX_AGENT_PROVIDER` (provider id, name, API, base URL, key variable name, and the catalog models), and `RX_MODEL` as `provider/model`. Catalog failure with a selected model hands off that model alone. Argv is never rewritten. |
+| RX-AGENT-003 | Handed-off model capabilities follow RX-CATALOG-001: reasoning levels come only from the bundled snapshot, unlisted levels are sent as unsupported, and models without snapshot capabilities are sent with `reasoning: false`. A missing context length uses the provider's fallback context. |
 | RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
 | RX-CONCURRENCY-001 | Concurrent launches cannot retarget, corrupt, or delete another launch or user edit. |
 | RX-FAIL-001 | Non-interactive runs never install or destructively repair without approval; malformed user config is preserved and reported. |
@@ -48,6 +55,7 @@ read `recall.db`.
 | Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
+| `$RX_HOME` (default `~/.rx`) | rx-agent | Sessions, rx-agent config, and rx-agent's own credentials (`auth.json`, `device-id`), independent of `rx.keys`; the launcher never reads or writes it. |
 | Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
 Injection preference is: flags or environment, immutable launch config, then a
@@ -95,6 +103,22 @@ Hosted order is: select harness, discover or install in the user environment,
 validate route conflicts, execute with the same launch-scoped injection as a
 native `rx` / `rxc` launch, permission flags included. Route checks stop at
 `--`.
+
+## rx-agent
+
+`rx agent` and `rxa` launch rx-agent; it is the first picker entry with
+shortcut `a`. Codex keeps `rxx` and shortcut `x`. With `--provider none`,
+rx-agent runs as-is under RX-ROUTE-001 and resolves models through its own
+pi-ai configuration and the credentials it stores with `rx-agent login`. Rx applies no permission flags; rx-agent's tool policy
+is RX-PERM-001 in its own contract. Hosted mode does not launch rx-agent and
+the hosted picker omits it.
+
+rx-agent validates `RX_AGENT_PROVIDER` and fails closed on malformed input. When
+the handed-off provider id and endpoint match a pi-ai built-in provider with the
+same API, rx-agent keeps pi-ai's metadata for listed models, because pi-ai
+carries per-endpoint compatibility settings the snapshot does not. Built-in
+models absent from the handoff are dropped. Other models get pi-ai custom-model
+defaults: text input, zero cost, and 16384 max output tokens.
 
 ## Adding a harness
 

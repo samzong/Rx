@@ -1,3 +1,4 @@
+mod agent;
 mod args;
 mod catalog;
 mod claude_catalog;

@@ -1,12 +1,13 @@
 # Rx Roadmap
 
-Adopt an existing default harness, build on Pi, and optionally develop an
-independent core. Provider maintenance and external harness contributions
-continue throughout.
+Rx launches its own coding agent, rx-agent, alongside six native CLIs. rx-agent
+is built from [`agent/`](agent/) on pi-agent-core and pi-ai, is the first picker
+entry, and owns `rxa`. Provider maintenance and external harness contributions
+continue throughout. Every piece of agent work maps to a real use or an eval
+task; work that maps to neither waits.
 
-Today, Rx launches six native CLIs and opens a picker when no harness is given.
-No default agent is implemented. Before changing behavior, update the affected
-contracts in [DESIGN.md](docs/DESIGN.md).
+Before changing behavior, update the affected contracts in
+[DESIGN.md](docs/DESIGN.md) and [agent/DESIGN.md](agent/DESIGN.md).
 
 ## Ongoing commitments
 
@@ -18,7 +19,7 @@ the maintainer uses it. Keep admission standards unchanged across all phases.
 Require the existing model-discovery and streaming protocol probes through one
 API key. Verify model controls on their exact endpoint and protocol; unknown
 capabilities remain unknown. Maintain the admission file and generated snapshot
-with compatibility evidence. Success with the default harness alone does not
+with compatibility evidence. Success with rx-agent alone does not
 qualify a bundled provider.
 
 ### External harnesses
@@ -28,60 +29,50 @@ The maintainer adds harnesses they use; contributors can add others. There is
 no fixed shortlist. Each integration must meet DESIGN's installation, routing,
 permissions, ownership, secrets, hosted-mode, and native acceptance requirements.
 
-### Subscriptions
+## Phase 1
 
-Rx does not implement subscription authentication, token extraction or refresh,
-or subscription-sharing gateways. Harnesses keep their native subscription
-support. Recommend [Magpie](https://github.com/yetone/magpie) for cross-agent
-subscription sharing; it remains an external tool.
+Two lines that can run in parallel. Line A merges first; line B rebases onto it.
 
-## Select a default harness
+### A: agent core
 
-Recommend [Pi](https://github.com/earendil-works/pi): Rx already supports it,
-and its SDK and extensions provide a path to the next phase. Selection remains
-proposed. Codex is the alternative if Pi requires substantially more correction
-or cannot complete the required tasks.
+- [x] Agent loop from pi-agent-core and model access through pi-ai.
+- [x] `read`, `write`, `edit`, and `bash` tools.
+- [x] Append-only session log that records each message's real origin.
+- [x] Resume that closes interrupted tool calls without re-running them.
+- [x] CLI: REPL, `-p`, `models`, `sessions`, `--resume`, `--continue`.
+- [x] ACP server with load, list, cancel, and streaming tool updates.
+- [x] Launch through `rx agent` and `rxa` with Rx's provider configuration,
+  credentials, and catalogs; single-file binary through `bun build --compile`.
+- [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
+  independent of rx providers.
+- [ ] Ship rx-agent in the release workflow and `rx update`.
+- [ ] Run rx-agent through ACP in Lody, or Zed if Lody cannot host a custom agent.
 
-- Compare real repository tasks by completion, corrections, time, and cost.
-- Define default selection alongside the picker, explicit launches, scripts,
-  and hosted callers.
-- Use the installed native CLI and existing provider adapters. Preserve explicit
-  harness selection, `--provider none`, native sessions, and user configuration.
+Done when the owner completes at least one real task with rx-agent every day.
 
-Done when the default supports daily work and passes native acceptance checks.
+### B: evals
 
-## Build an Rx harness on Pi
+- [ ] 30 eval tasks from past sessions plus a 10-task holdout set, stored
+  outside the repository under `~/.rx/evals/`.
+- [ ] A runner and task schema in this repository.
+- [ ] Baseline scores for Claude Code and Codex.
 
-Use Pi's [SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
-or extensions. Compare runtime and distribution cost in an embedding or
-subprocess prototype.
+Done when one command scores any agent on the task set.
 
-- Reuse Rx's provider configuration, credentials, catalogs, and capability data.
-- Define the harness's entrypoint, settings, permissions, sessions, and packaging.
-  Preserve the external Pi installation and its user-owned state.
-- Reuse Pi's loop, tools, sessions, and compaction. Support repository instructions,
-  streaming output, file editing, shell execution, cancellation, and steering.
-- Verify task completion, failures, interruption, and session recovery through Rx.
+## After phase 1
 
-Done when this harness is the maintainer's daily default, with reliable resume
-and clear verification results.
+Each rx-agent failure is fixed and then becomes an eval task. Candidates,
+ordered by what daily use and evals show:
 
-## Consider an independent core
-
-Optional. Stay on Pi indefinitely if it meets the project's needs. Revisit when
-Pi limits required behavior or the owner chooses independent core ownership.
-
-- Define the intended improvement and compare it with continued Pi maintenance.
-- Build the execution loop and necessary tools, streaming, permissions,
-  cancellation, recovery, and compaction, reusing Rx's provider infrastructure.
-- Compare both implementations on the same tasks and failure scenarios.
-- Plan session migration or coexistence and rollback before replacing the default.
-
-Done when the replacement delivers the intended improvement while preserving
-necessary functionality and user sessions.
+- Sandbox for tool execution (replaces RX-PERM-001).
+- Context compaction and memory.
+- MCP tools.
+- Idempotency keys for external actions such as `git push`.
+- Replacing the pi-agent-core loop, only when evals show the loop is the limit.
 
 ## Tracking and verification
 
-Update progress and decisions in place. Changes must pass `cargo test -p rx`,
-`make check`, and affected DESIGN acceptance checks; agent changes also need
-real task and recovery evidence.
+Update progress and decisions in place. Launcher changes must pass
+`cargo test -p rx`, `make check`, and affected DESIGN acceptance checks. Agent
+changes must pass `make agent-check` and the real-model checks in
+[agent/DESIGN.md](agent/DESIGN.md).

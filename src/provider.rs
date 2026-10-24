@@ -55,6 +55,9 @@ pub(crate) enum ReasoningLevel {
 }
 
 impl ReasoningLevel {
+    pub(crate) const ALL: [Self; 7] =
+        [Self::Off, Self::Minimal, Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Off => "off",

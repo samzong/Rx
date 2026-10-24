@@ -1,10 +1,12 @@
 # Rx
 
-`rx` launches Claude Code, Codex, OpenCode, Pi, DeepSeek Harness, and Kimi Code with one provider configuration. It prepares each harness and runs its native CLI.
+`rx` launches rx-agent, Claude Code, Codex, OpenCode, Pi, DeepSeek Harness, and Kimi Code with one provider configuration. rx-agent is Rx's own coding agent, built from [`agent/`](agent/); the other harnesses run their native CLI.
 
 [![Rx architecture](assets/rx-architecture.png)](assets/rx-architecture.png)
 
 ## Install
+
+Requires Rust, [Bun](https://bun.sh), and pnpm.
 
 ```bash
 git clone https://github.com/samzong/Rx.git
@@ -16,6 +18,7 @@ make install
 
 ```bash
 rx providers login
+rxa
 rx codex
 rx --provider openrouter opencode
 rx --provider none claude
@@ -41,12 +44,46 @@ catalog marker and lease files in place, including when rolling back Rx.
 
 | Harness | Commands |
 | --- | --- |
+| rx-agent | `rx agent`, `rxa` |
 | Claude Code | `rx claude`, `rxc` |
 | Codex | `rx codex`, `rxx` |
 | OpenCode | `rx opencode`, `rxo` |
 | Pi | `rx pi`, `rxp` |
 | DeepSeek Harness | `rx dsh`, `rxd` |
 | Kimi Code | `rx kimi`, `rxk` |
+
+### rx-agent
+
+`rx agent` and `rxa` start rx-agent with the selected provider, its cached
+models, and its key in the child environment. `--model <provider>/<id>` selects
+a model; without it, Rx uses the provider-level `model` in `rx.toml`, then the
+provider's default model, then the first listed model, and reports the last
+choice on stderr. With `--provider none`, rx-agent runs
+as-is and resolves models through pi-ai and its own `$RX_HOME/config.json`.
+
+```bash
+rxa                          # interactive session
+rxa -p "..."                 # one prompt, then exit
+rxa -c                       # continue the latest session here
+rxa sessions                 # list sessions
+rxa acp                      # serve the Agent Client Protocol on stdio
+rx-agent login [provider]    # sign in to a subscription or store an API key
+rx-agent logout <provider>   # remove stored credentials
+```
+
+rx-agent works in the current directory with `read`, `write`, `edit`, and
+`bash`, running with your permissions and no sandbox. Sessions are append-only
+logs under `$RX_HOME/sessions/` (`RX_HOME` defaults to `~/.rx`). To use it from
+an editor that speaks ACP, configure the editor to run `rx agent acp`. See
+[agent/DESIGN.md](agent/DESIGN.md) for its contract.
+
+rx-agent keeps its own credentials, separate from `rx providers`.
+`rx-agent login` without a provider lists the providers that support login.
+ChatGPT subscriptions (`openai` or `openai-codex`) sign in through the browser
+or a device code; API-key providers such as `deepseek` prompt for the key.
+Credentials are stored in `$RX_HOME/auth.json` with owner-only permissions.
+To use a stored subscription during an rx launch, pass its model, for example
+`rxa --model openai-codex/<id>`.
 
 Provider commands:
 
@@ -69,7 +106,9 @@ make check
 make build
 ```
 
-`make install` installs `rx` and its six shortcuts into the Cargo bin directory.
+`make install` installs `rx`, its seven shortcuts, and the single-file `rx-agent`
+binary compiled by `bun build --compile` into the Cargo bin directory.
+`make agent-check` audits, type-checks, and tests `agent/`.
 Shell completions are available through `rx completions bash|zsh|fish`.
 The GitHub release workflow builds the four supported targets from the checked tag.
 

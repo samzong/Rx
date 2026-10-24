@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Harness {
+    Agent,
     Claude,
     Codex,
     OpenCode,
@@ -14,17 +15,28 @@ pub(crate) enum Harness {
 }
 
 impl Harness {
-    pub(crate) const ALL: [Self; 6] =
+    pub(crate) const ALL: [Self; 7] =
+        [Self::Agent, Self::Claude, Self::Codex, Self::OpenCode, Self::Pi, Self::Dsh, Self::Kimi];
+
+    pub(crate) const HOSTED: [Self; 6] =
         [Self::Claude, Self::Codex, Self::OpenCode, Self::Pi, Self::Dsh, Self::Kimi];
 
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Agent => "agent",
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
             Self::Pi => "pi",
             Self::Dsh => "dsh",
             Self::Kimi => "kimi",
+        }
+    }
+
+    pub(crate) fn program(self) -> &'static str {
+        match self {
+            Self::Agent => crate::agent::PROGRAM,
+            _ => self.as_str(),
         }
     }
 
@@ -104,6 +116,7 @@ pub(crate) fn rewrite_argv0(mut args: Vec<OsString>) -> Vec<OsString> {
 pub(crate) fn argv0_harness(argv0: impl AsRef<OsStr>) -> Option<&'static str> {
     let name = Path::new(argv0.as_ref()).file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
     match name {
+        "rxa" => Some("agent"),
         "rxc" => Some("claude"),
         "rxx" => Some("codex"),
         "rxo" => Some("opencode"),
@@ -279,4 +292,34 @@ fn parse_update(args: &[OsString]) -> Result<UpdateCommand> {
         bail!("unexpected argument: {}\n\nusage: rx update [--yes]", arg.to_string_lossy());
     }
     Ok(UpdateCommand::Run { yes: !args.is_empty() })
+}
+
+pub(crate) fn take_model(passthrough: &[OsString]) -> Result<(Option<String>, Vec<OsString>)> {
+    let (flags, literal) = passthrough.split_at(before_double_dash(passthrough).len());
+    let mut flags = flags.iter();
+    let mut model = None;
+    let mut kept = Vec::with_capacity(passthrough.len());
+    while let Some(arg) = flags.next() {
+        let value = if arg == "-m" || arg == "--model" {
+            let value = flags
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("{} requires a model id", arg.to_string_lossy()))?;
+            Some(value.to_str().filter(|value| !value.is_empty()).ok_or_else(|| {
+                anyhow::anyhow!("{} requires a UTF-8 model id", arg.to_string_lossy())
+            })?)
+        } else {
+            arg.to_str()
+                .and_then(|text| text.strip_prefix("--model=").or_else(|| text.strip_prefix("-m=")))
+        };
+        if let Some(value) = value {
+            if value.is_empty() {
+                bail!("{} requires a model id", arg.to_string_lossy());
+            }
+            model = Some(value.to_string());
+        } else {
+            kept.push(arg.clone());
+        }
+    }
+    kept.extend_from_slice(literal);
+    Ok((model, kept))
 }

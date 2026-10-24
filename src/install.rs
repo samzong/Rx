@@ -25,7 +25,7 @@ pub(crate) fn spec(harness: Harness) -> Option<InstallSpec> {
         Harness::Codex => ("Codex", "https://chatgpt.com/codex/install.sh", "sh"),
         Harness::OpenCode => ("OpenCode", "https://opencode.ai/install", "bash"),
         Harness::Pi => ("Pi", "https://pi.dev/install.sh", "sh"),
-        Harness::Dsh => return None,
+        Harness::Agent | Harness::Dsh => return None,
         Harness::Kimi => ("Kimi Code", "https://code.kimi.com/kimi-code/install.sh", "bash"),
     };
     Some(InstallSpec { program: harness.as_str(), display, url, shell })
@@ -37,7 +37,10 @@ pub(crate) fn command_line(spec: &InstallSpec) -> String {
 
 pub(crate) fn ensure(harness: Harness, env: &EnvLookup) -> Result<PathBuf> {
     if !env.is_real() {
-        return Ok(PathBuf::from(harness.as_str()));
+        return Ok(PathBuf::from(harness.program()));
+    }
+    if harness == Harness::Agent {
+        return ensure_agent();
     }
     let Some(spec) = spec(harness) else {
         return ensure_dsh(env);
@@ -54,6 +57,22 @@ pub(crate) fn ensure(harness: Harness, env: &EnvLookup) -> Result<PathBuf> {
             "{} finished installing but {} was not found. Add ~/.local/bin and ~/.opencode/bin to PATH, then retry.",
             spec.display,
             spec.program
+        )
+    })
+}
+
+fn ensure_agent() -> Result<PathBuf> {
+    let program = crate::agent::PROGRAM;
+    let beside_rx = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .into_iter()
+        .collect::<Vec<_>>();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let extensions = executable_extensions();
+    lookup_with(program, &path, &beside_rx, extensions.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{program} is not installed. Install it with `make install` from a clone of https://github.com/samzong/Rx, then retry."
         )
     })
 }

@@ -1,0 +1,30 @@
+{
+  "name": "rx-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "rx-agent: the Rx coding agent built on pi-agent-core and pi-ai",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "rx-agent": "src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.0.2",
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "typebox": "1.4.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

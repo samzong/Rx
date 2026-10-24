@@ -63,7 +63,7 @@ impl LaunchPlan {
     fn new(request: &LaunchRequest) -> Self {
         Self {
             launch_lease: None,
-            program: PathBuf::from(request.harness.as_str()),
+            program: PathBuf::from(request.harness.program()),
             args: request.passthrough.clone(),
             env_set: Vec::new(),
             stderr_note: None,
@@ -152,7 +152,7 @@ pub(crate) fn plan_target(
 ) -> Result<LaunchPlan> {
     let model = target.model.as_deref().or(match request.harness {
         Harness::Claude => target.provider.claude_default_model,
-        Harness::Codex => target.provider.default_model,
+        Harness::Agent | Harness::Codex => target.provider.default_model,
         Harness::OpenCode | Harness::Pi | Harness::Dsh | Harness::Kimi => None,
     });
     let mut plan = inject(request, paths, env, target, model)?;
@@ -307,6 +307,12 @@ fn inject(
         }
         Harness::Kimi => {
             return crate::kimi::prepare(target, model, paths, env, &request.passthrough);
+        }
+        Harness::Agent => {
+            let route =
+                crate::agent::route(provider, key, model, &request.passthrough, paths, env)?;
+            plan.env_set = route.env_set;
+            plan.stderr_note = route.note;
         }
     }
     Ok(plan)

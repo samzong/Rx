@@ -4,7 +4,7 @@ mod store;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::args;
 use crate::catalog::{self, ListedModel};
@@ -21,7 +21,7 @@ pub(crate) fn prepare(
     let provider_id = target.provider.id.as_str();
     let provider_alias = format!("rx-{provider_id}");
     let model_prefix = format!("{provider_alias}/");
-    let (requested_model, mut args) = take_model(passthrough)?;
+    let (requested_model, mut args) = args::take_model(passthrough)?;
     let preferred_model = requested_model
         .or_else(|| configured_model.map(str::to_string))
         .map(|model| model.strip_prefix(&model_prefix).unwrap_or(&model).to_string());
@@ -96,36 +96,6 @@ fn kimi_config_path(paths: &Paths, env: &EnvLookup) -> Result<PathBuf> {
     }
     let home = dirs::home_dir().context("cannot determine home directory")?;
     Ok(home.join(".kimi-code").join("config.toml"))
-}
-
-fn take_model(passthrough: &[OsString]) -> Result<(Option<String>, Vec<OsString>)> {
-    let (flags, literal) = passthrough.split_at(args::before_double_dash(passthrough).len());
-    let mut flags = flags.iter();
-    let mut model = None;
-    let mut kept = Vec::with_capacity(passthrough.len());
-    while let Some(arg) = flags.next() {
-        let value = if arg == "-m" || arg == "--model" {
-            let value = flags
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("{} requires a model id", arg.to_string_lossy()))?;
-            Some(value.to_str().filter(|value| !value.is_empty()).ok_or_else(|| {
-                anyhow::anyhow!("{} requires a UTF-8 model id", arg.to_string_lossy())
-            })?)
-        } else {
-            arg.to_str()
-                .and_then(|text| text.strip_prefix("--model=").or_else(|| text.strip_prefix("-m=")))
-        };
-        if let Some(value) = value {
-            if value.is_empty() {
-                bail!("{} requires a model id", arg.to_string_lossy());
-            }
-            model = Some(value.to_string());
-        } else {
-            kept.push(arg.clone());
-        }
-    }
-    kept.extend_from_slice(literal);
-    Ok((model, kept))
 }
 
 #[cfg(all(test, windows))]
