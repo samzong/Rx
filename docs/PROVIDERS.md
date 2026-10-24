@@ -1,9 +1,9 @@
 # Provider admission
 
-`models.dev` is a candidate metadata source, not rx's runtime source of truth.
+`models.dev` is a candidate metadata source, not Rx's runtime source of truth.
 Admission lives in `data/provider-admission.json`. Running
 `scripts/update-rx-providers` writes `data/providers.json`.
-Both files are committed. Released rx binaries compile `providers.json` in and
+Both files are committed. Released Rx binaries compile `providers.json` in and
 never fetch `models.dev`. The generated list is the first admitted models.dev
 ID, then the first managed entry, then the remaining models.dev IDs, then the
 remaining managed entries. When every models.dev model on an admitted provider
@@ -47,7 +47,7 @@ one API key (OpenAI `endpoint`, plus optional `anthropic_base` for Messages):
 - Codex/Pi `POST /v1/responses` as SSE.
 - Claude Code `POST /v1/messages` as SSE.
 
-The probe and launch path only request standard `GET /v1/models`. At launch, rx writes per-provider
+The probe and launch path only request standard `GET /v1/models`. At launch, Rx writes per-provider
 catalog files under `~/.recall/catalogs/` (Codex `model_catalog_json` as a
 Codex `ModelInfo` document, Claude picker seed, OpenCode/Pi model maps). Fresh
 files for the same provider and endpoint are reused for 1 hour.

@@ -1,4 +1,4 @@
-# Hosting rx
+# Hosting Rx
 
 How to embed the `rx` launcher inside another CLI and route coding agents
 through your own gateway. This is the practice extracted from the first
@@ -38,29 +38,29 @@ Launch: `rx host -- <native harness args>` with two environment variables:
 }
 ```
 
-Rules the request must satisfy — rx rejects violations instead of guessing:
+Rules the request must satisfy — Rx rejects violations instead of guessing:
 
 - Unknown fields are rejected (`deny_unknown_fields`). Never add fields
-  without a protocol version bump on the rx side.
-- `state_dir` must be absolute. rx keeps its own runtime state (catalog
+  without a protocol version bump on the Rx side.
+- `state_dir` must be absolute. Rx keeps its own runtime state (catalog
   cache) under it. Harness homes are never redirected: hosted sessions see
   the user's own harness configuration (skills, agents, settings), exactly
   like a native launch. Protocol minor 1 marks this semantic; before it,
-  rx scoped harness homes under `state_dir`.
-- `harness` is optional; when omitted, rx shows its interactive picker.
+  Rx scoped harness homes under `state_dir`.
+- `harness` is optional; when omitted, Rx shows its interactive picker.
 - `install_policy` is `prompt` or `deny`.
 - The endpoint must be an HTTP(S) URL; `credential_env` must be a valid
   environment variable name.
 
-What rx guarantees in return:
+What Rx guarantees in return:
 
 - Route guards per harness: native flags that could reroute traffic off the
   gateway (`--settings`, `model_provider=...`, non-gateway `--model`
   scopes, `--api-key`, ...) are rejected before launch. Hosts must not
   reimplement or pre-filter these — pass native args through verbatim and
-  let rx be the authority.
+  let Rx be the authority.
 - Discovery/installation of the harness binary uses the user-owned harness
-  home; hosted state is rx-internal runtime state only, never an
+  home; hosted state is Rx-internal runtime state only, never an
   installation root.
 - `rx host` plans what `rx` / `rxc` plan. For the same harness, native
   args and environment, a hosted launch gets the same launch-scoped
@@ -76,13 +76,13 @@ What rx guarantees in return:
 
 ## Distribution: pin, verify, refresh by PR
 
-Do not fetch rx at runtime and do not shell out to whatever `rx` is on
+Do not fetch Rx at runtime and do not shell out to whatever `rx` is on
 `PATH`. Embed per-platform release binaries in your own binary and treat
 the pair (binaries, lock file) as one atomically reviewed unit.
 
 Commit a lock next to the assets recording, per target:
 
-- source: repository, ref, full 40-char revision, rx version
+- source: repository, ref, full 40-char revision, Rx version
 - build: Rust toolchain, provenance URL of the CI run that built it
 - artifact: repo-relative path and SHA-256
 
@@ -98,7 +98,7 @@ Refresh through a dedicated CI workflow, not by hand:
 2. Build `cargo build --locked --release -p rx` on native runners per
    target with a pinned toolchain.
 3. Probe each built artifact on its own platform: run `rx host` and assert
-   protocol major/minor, the expected rx version, and the exact harness
+   protocol major/minor, the expected Rx version, and the exact harness
    set. A binary that builds but fails the handshake never lands.
 4. Regenerate the lock, run the host repo's full gate, and open a PR
    containing exactly the four binaries plus the lock. Never push to the
@@ -129,9 +129,9 @@ supports the harness about to launch, before trusting it.
 
 ## Boundaries
 
-- rx is the routing authority; the host owns key lifecycle, gateway
+- Rx is the routing authority; the host owns key lifecycle, gateway
   endpoint, and UX around them.
-- Do not link rx's crates or parse its internals — the capabilities JSON
+- Do not link Rx's crates or parse its internals — the capabilities JSON
   and the request schema are the whole contract.
 - Gate on `protocol.major == 1` and treat minor as additive.
 - Keep the credential out of argv, logs, and host config files it does not
@@ -148,4 +148,4 @@ supports the harness about to launch, before trusting it.
 - [ ] Content-addressed engine cache, 0700, atomic install
 - [ ] Environment scrubbed before injecting request + credential
 - [ ] Override path validated with the same handshake
-- [ ] Native args passed through untouched; route guards left to rx
+- [ ] Native args passed through untouched; route guards left to Rx

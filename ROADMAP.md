@@ -1,10 +1,10 @@
-# rx Roadmap
+# Rx Roadmap
 
 Adopt an existing default harness, build on Pi, and optionally develop an
 independent core. Provider maintenance and external harness contributions
 continue throughout.
 
-Today, rx launches six native CLIs and opens a picker when no harness is given.
+Today, Rx launches six native CLIs and opens a picker when no harness is given.
 No default agent is implemented. Before changing behavior, update the affected
 contracts in [DESIGN.md](docs/DESIGN.md).
 
@@ -30,14 +30,14 @@ permissions, ownership, secrets, hosted-mode, and native acceptance requirements
 
 ### Subscriptions
 
-rx does not implement subscription authentication, token extraction or refresh,
+Rx does not implement subscription authentication, token extraction or refresh,
 or subscription-sharing gateways. Harnesses keep their native subscription
 support. Recommend [Magpie](https://github.com/yetone/magpie) for cross-agent
 subscription sharing; it remains an external tool.
 
 ## Select a default harness
 
-Recommend [Pi](https://github.com/earendil-works/pi): rx already supports it,
+Recommend [Pi](https://github.com/earendil-works/pi): Rx already supports it,
 and its SDK and extensions provide a path to the next phase. Selection remains
 proposed. Codex is the alternative if Pi requires substantially more correction
 or cannot complete the required tasks.
@@ -50,18 +50,18 @@ or cannot complete the required tasks.
 
 Done when the default supports daily work and passes native acceptance checks.
 
-## Build an rx harness on Pi
+## Build an Rx harness on Pi
 
 Use Pi's [SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
 or extensions. Compare runtime and distribution cost in an embedding or
 subprocess prototype.
 
-- Reuse rx's provider configuration, credentials, catalogs, and capability data.
+- Reuse Rx's provider configuration, credentials, catalogs, and capability data.
 - Define the harness's entrypoint, settings, permissions, sessions, and packaging.
   Preserve the external Pi installation and its user-owned state.
 - Reuse Pi's loop, tools, sessions, and compaction. Support repository instructions,
   streaming output, file editing, shell execution, cancellation, and steering.
-- Verify task completion, failures, interruption, and session recovery through rx.
+- Verify task completion, failures, interruption, and session recovery through Rx.
 
 Done when this harness is the maintainer's daily default, with reliable resume
 and clear verification results.
@@ -73,7 +73,7 @@ Pi limits required behavior or the owner chooses independent core ownership.
 
 - Define the intended improvement and compare it with continued Pi maintenance.
 - Build the execution loop and necessary tools, streaming, permissions,
-  cancellation, recovery, and compaction, reusing rx's provider infrastructure.
+  cancellation, recovery, and compaction, reusing Rx's provider infrastructure.
 - Compare both implementations on the same tasks and failure scenarios.
 - Plan session migration or coexistence and rollback before replacing the default.
 

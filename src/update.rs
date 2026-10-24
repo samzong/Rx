@@ -13,7 +13,7 @@ use crate::args::UpdateCommand;
 use crate::config::Paths;
 use crate::launch::EnvLookup;
 
-const GITHUB_REPO: &str = "samzong/rx";
+const GITHUB_REPO: &str = "samzong/Rx";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const LAUNCH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
