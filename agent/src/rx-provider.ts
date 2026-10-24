@@ -1,16 +1,23 @@
 import { createProvider, envApiKeyAuth, type Api, type Model, type MutableModels, type ProviderStreams, type StreamOptions, type ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { THINKING_LEVELS } from "./models.ts";
 
 export const PROVIDER_ENV = "RX_AGENT_PROVIDER";
 const DEFAULT_MAX_TOKENS = 16_384;
-const APIS = { "openai-completions": openAICompletionsApi, "openai-responses": () => withoutPromptCacheKey(openAIResponsesApi()) } as const;
+const APIS = {
+  "openai-completions": openAICompletionsApi,
+  "openai-responses": () => withoutPromptCacheKey(openAIResponsesApi()),
+  "anthropic-messages": anthropicMessagesApi,
+} as const;
 type HandoffApi = keyof typeof APIS;
 
 interface HandoffModel {
   id: string;
   name?: string;
+  api?: HandoffApi;
+  baseUrl?: string;
   contextWindow: number;
   reasoning: boolean;
   thinkingLevelMap?: ThinkingLevelMap;
@@ -63,6 +70,12 @@ function parseLevels(value: unknown, path: string): ThinkingLevelMap {
   return levels as ThinkingLevelMap;
 }
 
+function parseApi(value: unknown, path: string): HandoffApi {
+  const api = text(value, path);
+  if (!Object.hasOwn(APIS, api)) fail(`unsupported ${path} "${api}"`);
+  return api as HandoffApi;
+}
+
 function parseModel(value: unknown, path: string): HandoffModel {
   const raw = record(value, path);
   const contextWindow = raw.contextWindow;
@@ -73,6 +86,8 @@ function parseModel(value: unknown, path: string): HandoffModel {
   return {
     id: text(raw.id, `${path}.id`),
     name: raw.name === undefined ? undefined : text(raw.name, `${path}.name`),
+    api: raw.api === undefined ? undefined : parseApi(raw.api, `${path}.api`),
+    baseUrl: raw.baseUrl === undefined ? undefined : text(raw.baseUrl, `${path}.baseUrl`),
     contextWindow,
     reasoning: raw.reasoning,
     thinkingLevelMap: raw.thinkingLevelMap === undefined ? undefined : parseLevels(raw.thinkingLevelMap, `${path}.thinkingLevelMap`),
@@ -87,8 +102,7 @@ export function parseHandoff(source: string): Handoff {
     fail(`invalid JSON: ${(error as Error).message}`);
   }
   const raw = record(parsed, "document");
-  const api = text(raw.api, "api");
-  if (!Object.hasOwn(APIS, api)) fail(`unsupported api "${api}"`);
+  const api = parseApi(raw.api, "api");
   if (!Array.isArray(raw.models) || !raw.models.length) fail("models must be a non-empty array");
   const models = raw.models.map((model, index) => parseModel(model, `models[${index}]`));
   const defaultModel = text(raw.defaultModel, "defaultModel");
@@ -96,7 +110,7 @@ export function parseHandoff(source: string): Handoff {
   return {
     id: text(raw.id, "id"),
     name: text(raw.name, "name"),
-    api: api as HandoffApi,
+    api,
     baseUrl: text(raw.baseUrl, "baseUrl"),
     env: text(raw.env, "env"),
     models,
@@ -110,26 +124,35 @@ function endpoint(url: string | undefined): string | undefined {
 
 export function applyHandoff(models: MutableModels, handoff: Handoff): void {
   const builtin = models.getProvider(handoff.id);
-  const known =
-    builtin && endpoint(builtin.baseUrl) === endpoint(handoff.baseUrl)
-      ? models.getModels(handoff.id).filter((model) => model.api === handoff.api)
-      : [];
-  const list: Model<Api>[] = handoff.models.map(
-    (model) =>
-      known.find((candidate) => candidate.id === model.id) ?? {
+  const list: Model<Api>[] = handoff.models.map((model) => {
+    const api = model.api ?? handoff.api;
+    const baseUrl = model.baseUrl ?? handoff.baseUrl;
+    const known = builtin
+      ? models
+          .getModels(handoff.id)
+          .find(
+            (candidate) =>
+              candidate.id === model.id && candidate.api === api && endpoint(candidate.baseUrl) === endpoint(baseUrl)
+          )
+      : undefined;
+    return (
+      known ?? {
         id: model.id,
         name: model.name ?? model.id,
-        api: handoff.api,
+        api,
         provider: handoff.id,
-        baseUrl: handoff.baseUrl,
+        baseUrl,
         reasoning: model.reasoning,
         thinkingLevelMap: model.thinkingLevelMap,
+        compat: api === "anthropic-messages" && model.thinkingLevelMap ? { forceAdaptiveThinking: true } : undefined,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: model.contextWindow,
         maxTokens: DEFAULT_MAX_TOKENS,
-      },
-  );
+      }
+    );
+  });
+  const apis = [...new Set(list.map((model) => model.api as HandoffApi))];
   models.setProvider(
     createProvider({
       id: handoff.id,
@@ -137,7 +160,7 @@ export function applyHandoff(models: MutableModels, handoff: Handoff): void {
       baseUrl: handoff.baseUrl,
       auth: { apiKey: envApiKeyAuth(`${handoff.name} API key`, [handoff.env]) },
       models: list,
-      api: APIS[handoff.api](),
+      api: Object.fromEntries(apis.map((api) => [api, APIS[api]()])),
     }),
   );
 }

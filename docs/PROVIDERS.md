@@ -22,6 +22,10 @@ capabilities and falls back to `openai-completions`. A bundled provider may set
 `dsh_protocol` for its verified agent path: `openai-responses` when its Chat
 Completions tool path does not support selectable effort while Responses
 accepts `reasoning.effort`. Capabilities remain separate per protocol.
+A model with an `anthropic-messages` entry is handed to rx-agent on that
+protocol at the provider's Messages base, where prompt caching works; Tokener's
+Claude models use this because its Responses endpoint does not cache them. Its
+reasoning wire values are Messages `output_config.effort` values.
 
 Users manage providers with `rx providers list`, `login [provider]`,
 `logout [provider]`, `use [provider]`, and `models update [provider]`. Passing a

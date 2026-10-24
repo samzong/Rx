@@ -31,6 +31,8 @@ pub(crate) enum ModelProtocol {
     OpenAiCompletions,
     #[serde(rename = "openai-responses")]
     OpenAiResponses,
+    #[serde(rename = "anthropic-messages")]
+    AnthropicMessages,
 }
 
 impl ModelProtocol {
@@ -38,6 +40,7 @@ impl ModelProtocol {
         match self {
             Self::OpenAiCompletions => "openai-completions",
             Self::OpenAiResponses => "openai-responses",
+            Self::AnthropicMessages => "anthropic-messages",
         }
     }
 }
@@ -119,19 +122,37 @@ pub(crate) fn find(id: &str) -> Option<&'static Provider> {
     catalog().iter().find(|provider| provider.id == id)
 }
 
-pub(crate) fn reasoning_control(
+fn capabilities(
     provider_id: &str,
     endpoint: &str,
     model_id: &str,
     protocol: ModelProtocol,
-) -> Option<&'static ReasoningControl> {
+) -> Option<&'static ProtocolCapabilities> {
     let provider = snapshot().providers.iter().find(|row| row.provider.id == provider_id)?;
     if crate::catalog::openai_base(&provider.provider.endpoint)
         != crate::catalog::openai_base(endpoint)
     {
         return None;
     }
-    provider.model_capabilities.get(model_id)?.get(&protocol)?.reasoning.as_ref()
+    provider.model_capabilities.get(model_id)?.get(&protocol)
+}
+
+pub(crate) fn reasoning_control(
+    provider_id: &str,
+    endpoint: &str,
+    model_id: &str,
+    protocol: ModelProtocol,
+) -> Option<&'static ReasoningControl> {
+    capabilities(provider_id, endpoint, model_id, protocol)?.reasoning.as_ref()
+}
+
+pub(crate) fn serves(
+    provider_id: &str,
+    endpoint: &str,
+    model_id: &str,
+    protocol: ModelProtocol,
+) -> bool {
+    capabilities(provider_id, endpoint, model_id, protocol).is_some()
 }
 
 pub(crate) fn dsh_protocol(provider_id: &str, endpoint: &str) -> ModelProtocol {
