@@ -119,6 +119,8 @@ async function main(argv: string[]): Promise<number> {
     const fallback = `${launch.id}/${launch.defaultModel}`;
     if (!config.model) {
       process.stderr.write(`rx-agent: using ${fallback} (rx launch default; set "model" in ${configPath(home)} or pass --model)\n`);
+    } else if (config.model.includes("/") && !config.model.startsWith(`${launch.id}/`)) {
+      process.stderr.write(`rx-agent: "model" ${config.model} in ${configPath(home)} belongs to another provider and this rx launch uses ${launch.id}; using ${fallback} (pass --model, or --provider none to use it)\n`);
     } else {
       try {
         return await resolveModel(models, config.model, thinking);

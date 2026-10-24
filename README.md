@@ -58,7 +58,8 @@ catalog marker and lease files in place, including when rolling back Rx.
 models, and its key in the child environment. The model is the first of
 `--model <provider>/<id>`, the provider-level `model` in `rx.toml`, `model` in
 `$RX_HOME/config.json` (default `~/.rx/config.json`), the provider's default
-model, and the first listed model. When `config.json` names a model that this
+model, and the first listed model. `config.json` applies only to a model of
+the launched provider; when it names another provider's model or a model this
 launch cannot use, rx-agent says so on stderr and uses the launch default. With
 `--provider none`, rx-agent runs as-is and resolves models through pi-ai and
 its own `$RX_HOME/config.json`.

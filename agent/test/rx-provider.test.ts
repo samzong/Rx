@@ -201,12 +201,13 @@ test("in an rx launch, config.json picks the model unless RX_MODEL or --model do
     const home = tempDir();
     if (config) writeFileSync(join(home, "config.json"), JSON.stringify(config));
     const env = { ...process.env, RX_HOME: home, RX_MODEL: "", ACME_TEST_API_KEY: "test-key", RX_AGENT_PROVIDER: handoff({ baseUrl }), ...extra };
+    const before = requests.length;
     const child = spawn(process.execPath, [CLI, ...args, "-p", "ping"], { env });
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.stdout.resume();
     return new Promise<{ status: number | null; stderr: string; model: unknown }>((resolve) =>
-      child.on("close", (status) => resolve({ status, stderr, model: requests.at(-1)?.body.model })),
+      child.on("close", (status) => resolve({ status, stderr, model: requests.length > before ? requests.at(-1)?.body.model : undefined })),
     );
   };
   try {
@@ -220,10 +221,19 @@ test("in an rx launch, config.json picks the model unless RX_MODEL or --model do
     assert.equal(configured.model, "plain-1");
     assert.doesNotMatch(configured.stderr, /rx-agent:/);
 
-    const unavailable = await run({ model: "elsewhere/model-9" });
+    const unavailable = await run({ model: "acme/model-9" });
     assert.equal(unavailable.status, 0, unavailable.stderr);
     assert.equal(unavailable.model, "think-1");
-    assert.match(unavailable.stderr, /"model" elsewhere\/model-9 in .*config\.json is unavailable in this launch \(unknown provider "elsewhere"\); using acme\/think-1/);
+    assert.match(unavailable.stderr, /"model" acme\/model-9 in .*config\.json is unavailable in this launch \(unknown model "model-9" for provider "acme"[^)]*\); using acme\/think-1/);
+
+    const otherProvider = await run({ model: "deepseek/deepseek-flash" }, { DEEPSEEK_API_KEY: "other-key" });
+    assert.equal(otherProvider.status, 0, otherProvider.stderr);
+    assert.equal(otherProvider.model, "think-1");
+    assert.match(otherProvider.stderr, /"model" deepseek\/deepseek-flash in .*config\.json belongs to another provider and this rx launch uses acme; using acme\/think-1 \(pass --model, or --provider none to use it\)/);
+
+    const bare = await run({ model: "plain-1" });
+    assert.equal(bare.model, "think-1");
+    assert.match(bare.stderr, /"model" plain-1 in .*config\.json is unavailable in this launch \(invalid model "plain-1"[^)]*\); using acme\/think-1/);
 
     const selected = await run({ model: "acme/think-1" }, { RX_MODEL: "acme/plain-1" });
     assert.equal(selected.model, "plain-1");
