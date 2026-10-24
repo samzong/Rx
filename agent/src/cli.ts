@@ -5,10 +5,10 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createRxAgent } from "./agent.ts";
 import { serveAcp } from "./acp.ts";
-import { loadConfig, rxHome } from "./config.ts";
+import { configPath, loadConfig, rxHome } from "./config.ts";
 import { deviceId, FileCredentialStore } from "./credentials.ts";
 import { login, terminalInteraction } from "./login.ts";
-import { formatModel, resolveModel, type ModelChoice } from "./models.ts";
+import { formatModel, parseThinking, resolveModel, type ModelChoice } from "./models.ts";
 import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
@@ -28,7 +28,8 @@ Usage:
 \`rx agent\` and \`rxa\` start rx-agent with the selected rx provider.
 
 Options:
-  -m, --model <provider/id>  model to use (default: RX_MODEL, then "model" in config.json)
+  -m, --model <provider/id>  model to use (default: RX_MODEL, then "model" in config.json,
+                             then the default model of the rx launch)
       --thinking <level>     off, minimal, low, medium, high, xhigh, max (default: medium)
   -r, --resume <id>          resume a saved session
   -c, --continue             resume the latest session in this directory
@@ -110,8 +111,23 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const choose = (): Promise<ModelChoice> =>
-    resolveModel(models, values.model ?? (process.env.RX_MODEL || undefined) ?? config.model, values.thinking ?? config.thinking);
+  const choose = async (): Promise<ModelChoice> => {
+    const thinking = values.thinking ?? config.thinking;
+    parseThinking(thinking);
+    const explicit = values.model ?? (process.env.RX_MODEL || undefined);
+    if (explicit || !launch) return resolveModel(models, explicit ?? config.model, thinking);
+    const fallback = `${launch.id}/${launch.defaultModel}`;
+    if (!config.model) {
+      process.stderr.write(`rx-agent: using ${fallback} (rx launch default; set "model" in ${configPath(home)} or pass --model)\n`);
+    } else {
+      try {
+        return await resolveModel(models, config.model, thinking);
+      } catch (error) {
+        process.stderr.write(`rx-agent: "model" ${config.model} in ${configPath(home)} is unavailable in this launch (${(error as Error).message}); using ${fallback}\n`);
+      }
+    }
+    return resolveModel(models, fallback, thinking);
+  };
 
   if (command === "acp") {
     const server = serveAcp({ home, models, choose });

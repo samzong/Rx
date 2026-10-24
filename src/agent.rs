@@ -30,7 +30,7 @@ pub(crate) fn route(
     let prefix = format!("{}/", provider.id);
     let (user_model, _) = args::take_model(passthrough)?;
     let requested = user_model.as_deref().and_then(|spec| spec.strip_prefix(&prefix));
-    let preferred = requested.or(model);
+    let fallback = model.or(provider.default_model);
     let allow_fetch = env.is_real() || provider.setup == Setup::Generated;
     let mut notes = Vec::new();
     let mut models = match catalog::load_listed_models(
@@ -41,17 +41,18 @@ pub(crate) fn route(
         allow_fetch,
     ) {
         Ok(models) => models,
-        Err(error) if preferred.is_some() => {
+        Err(error) if requested.or(fallback).is_some() => {
             notes.push(format!(
-                    "[rx] agent: provider catalog unavailable; handing off only the selected model: {error:#}"
+                    "[rx] agent: provider catalog unavailable; handing off only the selected models: {error:#}"
                 ));
             Vec::new()
         }
         Err(error) => return Err(error),
     };
-    if let Some(preferred) = preferred.filter(|id| !models.iter().any(|listed| listed.id == *id)) {
-        models
-            .insert(0, ListedModel { id: preferred.to_string(), name: None, context_length: None });
+    for id in [fallback, requested].into_iter().flatten() {
+        if !models.iter().any(|listed| listed.id == id) {
+            models.insert(0, ListedModel { id: id.to_string(), name: None, context_length: None });
+        }
     }
     let Some(first) = models.first() else {
         bail!(
@@ -61,13 +62,7 @@ pub(crate) fn route(
             provider.id
         );
     };
-    if preferred.is_none() && user_model.is_none() {
-        notes.push(format!(
-            "[rx] agent: using {}/{} (first listed model; set model in rx.toml or pass --model)",
-            provider.id, first.id
-        ));
-    }
-    let selected = preferred.unwrap_or(&first.id);
+    let default_model = fallback.unwrap_or(&first.id);
     let protocol = crate::provider::dsh_protocol(&provider.id, base_url);
     let document = json!({
         "id": provider.id,
@@ -79,15 +74,16 @@ pub(crate) fn route(
             .iter()
             .map(|listed| model_entry(provider, protocol, listed))
             .collect::<Vec<_>>(),
+        "defaultModel": default_model,
     });
-    Ok(Route {
-        env_set: vec![
-            (provider.env.clone(), key.to_string()),
-            (PROVIDER_ENV.to_string(), document.to_string()),
-            (MODEL_ENV.to_string(), format!("{}/{selected}", provider.id)),
-        ],
-        note: (!notes.is_empty()).then(|| notes.join("\n")),
-    })
+    let mut env_set = vec![
+        (provider.env.clone(), key.to_string()),
+        (PROVIDER_ENV.to_string(), document.to_string()),
+    ];
+    if let Some(model) = model {
+        env_set.push((MODEL_ENV.to_string(), format!("{}/{model}", provider.id)));
+    }
+    Ok(Route { env_set, note: (!notes.is_empty()).then(|| notes.join("\n")) })
 }
 
 fn model_entry(provider: &Provider, protocol: ModelProtocol, listed: &ListedModel) -> Value {

@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import { test } from "node:test";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { resolveModel } from "../src/models.ts";
 import { applyHandoff, parseHandoff } from "../src/rx-provider.ts";
+import { tempDir } from "./helpers.ts";
+
+const CLI = join(import.meta.dirname, "../src/cli.ts");
 
 function handoff(overrides: Record<string, unknown> = {}): string {
-  return JSON.stringify({
+  const fields: Record<string, unknown> = {
     id: "acme",
     name: "Acme",
     api: "openai-completions",
@@ -24,7 +30,37 @@ function handoff(overrides: Record<string, unknown> = {}): string {
       { id: "plain-1", name: "Plain One", contextWindow: 64000, reasoning: false },
     ],
     ...overrides,
+  };
+  return JSON.stringify({ defaultModel: (fields.models as { id?: string }[])[0]?.id, ...fields });
+}
+
+function chatServer(requests: { url?: string; authorization?: string; body: Record<string, unknown> }[]): Promise<{ server: Server; baseUrl: string }> {
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push({ url: request.url, authorization: request.headers.authorization, body: parsed });
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      if (request.url?.endsWith("/responses")) {
+        const message = { type: "message", id: "m1", role: "assistant", status: "completed" };
+        const events = [
+          { type: "response.created", response: { id: "r1" } },
+          { type: "response.output_item.added", output_index: 0, item: { ...message, content: [] } },
+          { type: "response.output_item.done", output_index: 0, item: { ...message, content: [{ type: "output_text", text: "pong" }] } },
+          { type: "response.completed", response: { id: "r1", status: "completed", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+        ];
+        response.end(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""));
+        return;
+      }
+      const chunk = (delta: Record<string, unknown>, finish: string | null) =>
+        `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 0, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+      response.end(`${chunk({ role: "assistant", content: "pong" }, null)}${chunk({}, "stop")}data: [DONE]\n\n`);
+    });
   });
+  return new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve({ server, baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1` })),
+  );
 }
 
 test("an rx handoff registers its provider, catalog, and reasoning levels", async () => {
@@ -95,6 +131,8 @@ test("malformed handoffs fail closed", () => {
   assert.throws(() => parseHandoff("{"), /RX_AGENT_PROVIDER: invalid JSON/);
   assert.throws(() => parseHandoff(handoff({ api: "anthropic-messages" })), /unsupported api "anthropic-messages"/);
   assert.throws(() => parseHandoff(handoff({ models: [] })), /models must be a non-empty array/);
+  assert.throws(() => parseHandoff(handoff({ defaultModel: undefined })), /defaultModel must be/);
+  assert.throws(() => parseHandoff(handoff({ defaultModel: "gone-1" })), /defaultModel "gone-1" is not in models/);
   assert.throws(
     () => parseHandoff(handoff({ models: [{ id: "m", reasoning: false }] })),
     /models\[0\]\.contextWindow must be a positive integer/,
@@ -107,19 +145,7 @@ test("malformed handoffs fail closed", () => {
 
 test("requests go to the handed-off endpoint with its key and mapped effort", async () => {
   const requests: { url?: string; authorization?: string; body: Record<string, unknown> }[] = [];
-  const server = createServer((request, response) => {
-    let body = "";
-    request.on("data", (chunk) => (body += chunk));
-    request.on("end", () => {
-      requests.push({ url: request.url, authorization: request.headers.authorization, body: JSON.parse(body) });
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      const chunk = (delta: Record<string, unknown>, finish: string | null) =>
-        `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 0, model: "think-1", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
-      response.end(`${chunk({ role: "assistant", content: "pong" }, null)}${chunk({}, "stop")}data: [DONE]\n\n`);
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
+  const { server, baseUrl } = await chatServer(requests);
   process.env.ACME_TEST_API_KEY = "test-key";
   try {
     const models = builtinModels();
@@ -127,7 +153,7 @@ test("requests go to the handed-off endpoint with its key and mapped effort", as
       models,
       parseHandoff(
         handoff({
-          baseUrl: `http://127.0.0.1:${port}/v1`,
+          baseUrl,
           models: [{ id: "think-1", contextWindow: 200000, reasoning: true, thinkingLevelMap: { off: "none", low: "l", medium: "m", high: "h", xhigh: null, max: null } }],
         }),
       ),
@@ -144,6 +170,72 @@ test("requests go to the handed-off endpoint with its key and mapped effort", as
     assert.equal(requests[0]!.body.reasoning_effort, "h");
   } finally {
     delete process.env.ACME_TEST_API_KEY;
+    server.close();
+  }
+});
+
+test("responses handoffs omit prompt_cache_key", async () => {
+  const requests: { url?: string; body: Record<string, unknown> }[] = [];
+  const { server, baseUrl } = await chatServer(requests);
+  process.env.ACME_TEST_API_KEY = "test-key";
+  try {
+    const models = builtinModels();
+    applyHandoff(models, parseHandoff(handoff({ api: "openai-responses", baseUrl })));
+    const { model } = await resolveModel(models, "acme/plain-1", "off");
+    const reply = await models.completeSimple(model, { messages: [{ role: "user", content: "ping", timestamp: 0 }] }, { sessionId: "s1" });
+    assert.equal(reply.stopReason, "stop", reply.errorMessage);
+    assert.deepEqual(reply.content.map((block) => block.type === "text" && block.text), ["pong"]);
+    assert.equal(requests[0]!.url, "/v1/responses");
+    assert.equal(requests[0]!.body.model, "plain-1");
+    assert.equal(Object.hasOwn(requests[0]!.body, "prompt_cache_key"), false);
+  } finally {
+    delete process.env.ACME_TEST_API_KEY;
+    server.close();
+  }
+});
+
+test("in an rx launch, config.json picks the model unless RX_MODEL or --model does", async () => {
+  const requests: { body: Record<string, unknown> }[] = [];
+  const { server, baseUrl } = await chatServer(requests);
+  const run = (config: Record<string, unknown> | undefined, extra: Record<string, string> = {}, args: string[] = []) => {
+    const home = tempDir();
+    if (config) writeFileSync(join(home, "config.json"), JSON.stringify(config));
+    const env = { ...process.env, RX_HOME: home, RX_MODEL: "", ACME_TEST_API_KEY: "test-key", RX_AGENT_PROVIDER: handoff({ baseUrl }), ...extra };
+    const child = spawn(process.execPath, [CLI, ...args, "-p", "ping"], { env });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.stdout.resume();
+    return new Promise<{ status: number | null; stderr: string; model: unknown }>((resolve) =>
+      child.on("close", (status) => resolve({ status, stderr, model: requests.at(-1)?.body.model })),
+    );
+  };
+  try {
+    const launchDefault = await run(undefined);
+    assert.equal(launchDefault.status, 0, launchDefault.stderr);
+    assert.equal(launchDefault.model, "think-1");
+    assert.match(launchDefault.stderr, /rx-agent: using acme\/think-1 \(rx launch default; set "model" in .*config\.json or pass --model\)/);
+
+    const configured = await run({ model: "acme/plain-1" });
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.equal(configured.model, "plain-1");
+    assert.doesNotMatch(configured.stderr, /rx-agent:/);
+
+    const unavailable = await run({ model: "elsewhere/model-9" });
+    assert.equal(unavailable.status, 0, unavailable.stderr);
+    assert.equal(unavailable.model, "think-1");
+    assert.match(unavailable.stderr, /"model" elsewhere\/model-9 in .*config\.json is unavailable in this launch \(unknown provider "elsewhere"\); using acme\/think-1/);
+
+    const selected = await run({ model: "acme/think-1" }, { RX_MODEL: "acme/plain-1" });
+    assert.equal(selected.model, "plain-1");
+    const argv = await run({ model: "acme/think-1" }, { RX_MODEL: "acme/think-1" }, ["--model", "acme/plain-1"]);
+    assert.equal(argv.model, "plain-1");
+    assert.doesNotMatch(selected.stderr + argv.stderr, /rx-agent:/);
+
+    const badThinking = await run({ model: "acme/plain-1", thinking: "ultra" });
+    assert.equal(badThinking.status, 1);
+    assert.match(badThinking.stderr, /unknown thinking level "ultra"/);
+    assert.doesNotMatch(badThinking.stderr, /unavailable in this launch/);
+  } finally {
     server.close();
   }
 });

@@ -55,11 +55,17 @@ catalog marker and lease files in place, including when rolling back Rx.
 ### rx-agent
 
 `rx agent` and `rxa` start rx-agent with the selected provider, its cached
-models, and its key in the child environment. `--model <provider>/<id>` selects
-a model; without it, Rx uses the provider-level `model` in `rx.toml`, then the
-provider's default model, then the first listed model, and reports the last
-choice on stderr. With `--provider none`, rx-agent runs
-as-is and resolves models through pi-ai and its own `$RX_HOME/config.json`.
+models, and its key in the child environment. The model is the first of
+`--model <provider>/<id>`, the provider-level `model` in `rx.toml`, `model` in
+`$RX_HOME/config.json` (default `~/.rx/config.json`), the provider's default
+model, and the first listed model. When `config.json` names a model that this
+launch cannot use, rx-agent says so on stderr and uses the launch default. With
+`--provider none`, rx-agent runs as-is and resolves models through pi-ai and
+its own `$RX_HOME/config.json`.
+
+```json
+{ "model": "tokener/claude-opus-5", "thinking": "medium" }
+```
 
 ```bash
 rxa                          # interactive session

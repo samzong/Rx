@@ -152,8 +152,8 @@ pub(crate) fn plan_target(
 ) -> Result<LaunchPlan> {
     let model = target.model.as_deref().or(match request.harness {
         Harness::Claude => target.provider.claude_default_model,
-        Harness::Agent | Harness::Codex => target.provider.default_model,
-        Harness::OpenCode | Harness::Pi | Harness::Dsh | Harness::Kimi => None,
+        Harness::Codex => target.provider.default_model,
+        Harness::Agent | Harness::OpenCode | Harness::Pi | Harness::Dsh | Harness::Kimi => None,
     });
     let mut plan = inject(request, paths, env, target, model)?;
     permissions::apply_yolo(request, &mut plan, env);

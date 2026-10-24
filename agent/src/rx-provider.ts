@@ -1,11 +1,11 @@
-import { createProvider, envApiKeyAuth, type Api, type Model, type MutableModels, type ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { createProvider, envApiKeyAuth, type Api, type Model, type MutableModels, type ProviderStreams, type StreamOptions, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { THINKING_LEVELS } from "./models.ts";
 
 export const PROVIDER_ENV = "RX_AGENT_PROVIDER";
 const DEFAULT_MAX_TOKENS = 16_384;
-const APIS = { "openai-completions": openAICompletionsApi, "openai-responses": openAIResponsesApi } as const;
+const APIS = { "openai-completions": openAICompletionsApi, "openai-responses": () => withoutPromptCacheKey(openAIResponsesApi()) } as const;
 type HandoffApi = keyof typeof APIS;
 
 interface HandoffModel {
@@ -23,6 +23,21 @@ export interface Handoff {
   baseUrl: string;
   env: string;
   models: HandoffModel[];
+  defaultModel: string;
+}
+
+function withoutPromptCacheKey(api: ProviderStreams): ProviderStreams {
+  const strip =
+    (next: StreamOptions["onPayload"]) =>
+    async (payload: unknown, model: Model<Api>): Promise<unknown> => {
+      const { prompt_cache_key: _, ...rest } = ((await next?.(payload, model)) ?? payload) as Record<string, unknown>;
+      return rest;
+    };
+  return {
+    ...api,
+    stream: (model, context, options) => api.stream(model, context, { ...options, onPayload: strip(options?.onPayload) }),
+    streamSimple: (model, context, options) => api.streamSimple(model, context, { ...options, onPayload: strip(options?.onPayload) }),
+  };
 }
 
 function fail(message: string): never {
@@ -75,13 +90,17 @@ export function parseHandoff(source: string): Handoff {
   const api = text(raw.api, "api");
   if (!Object.hasOwn(APIS, api)) fail(`unsupported api "${api}"`);
   if (!Array.isArray(raw.models) || !raw.models.length) fail("models must be a non-empty array");
+  const models = raw.models.map((model, index) => parseModel(model, `models[${index}]`));
+  const defaultModel = text(raw.defaultModel, "defaultModel");
+  if (!models.some((model) => model.id === defaultModel)) fail(`defaultModel "${defaultModel}" is not in models`);
   return {
     id: text(raw.id, "id"),
     name: text(raw.name, "name"),
     api: api as HandoffApi,
     baseUrl: text(raw.baseUrl, "baseUrl"),
     env: text(raw.env, "env"),
-    models: raw.models.map((model, index) => parseModel(model, `models[${index}]`)),
+    models,
+    defaultModel,
   };
 }
 

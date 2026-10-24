@@ -11,8 +11,12 @@ export function rxHome(): string {
   return process.env.RX_HOME || join(homedir(), ".rx");
 }
 
+export function configPath(home: string): string {
+  return join(home, "config.json");
+}
+
 export function loadConfig(home: string = rxHome()): RxConfig {
-  const path = join(home, "config.json");
+  const path = configPath(home);
   let text: string;
   try {
     text = readFileSync(path, "utf8");
