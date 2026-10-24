@@ -3,14 +3,14 @@ import { constants } from "node:os";
 import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { createRxAgent } from "./agent.ts";
+import { createRxAgent, systemPrompt } from "./agent.ts";
 import { serveAcp } from "./acp.ts";
 import { configPath, loadConfig, rxHome } from "./config.ts";
 import { deviceId, FileCredentialStore } from "./credentials.ts";
 import { login, terminalInteraction } from "./login.ts";
 import { formatModel, parseThinking, resolveModel, type ModelChoice } from "./models.ts";
 import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
-import { listSessions, SessionLog } from "./session-log.ts";
+import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
 import { VERSION } from "./version.ts";
 
@@ -37,10 +37,13 @@ Options:
   -v, --version              show the version
 
 Files:
+  $RX_HOME (default ~/.rx)/AGENTS.md     global instructions, loaded before project instructions
   $RX_HOME (default ~/.rx)/config.json   {"model": "provider/id", "thinking": "medium"}
   $RX_HOME/sessions/<id>.jsonl           append-only session logs
   $RX_HOME/auth.json                     credentials stored by rx-agent login
   $RX_HOME/device-id                     installation id sent to providers that require one
+  AGENTS.md or CLAUDE.md                 project instructions from the Git root through the working directory
+  .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
 `;
 
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -156,10 +159,11 @@ async function main(argv: string[]): Promise<number> {
   const resumeId = values.continue ? listSessions(home, cwd)[0]?.id : values.resume;
   if (values.continue && !resumeId) throw new Error(`no saved session for ${cwd}`);
   const choice = await choose();
+  const prompt = systemPrompt(resumeId ? readSessionHeader(home, resumeId).cwd : cwd);
   const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
   const log = loaded?.log ?? SessionLog.create(home, cwd);
   if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);
-  const agent = createRxAgent({ ...choice, models, cwd: log.cwd, log, origin: "cli", messages: loaded?.messages });
+  const agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages });
   onTerminate(() => {
     agent.abort();
     return agent.waitForIdle();

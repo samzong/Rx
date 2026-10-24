@@ -1,19 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Api, type AssistantMessage, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type Models } from "@earendil-works/pi-ai";
+import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
+import { skillCatalog } from "./skills.ts";
 import { codingTools } from "./tools.ts";
-
-const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
-
-export function projectInstructions(cwd: string): { file: string; text: string } | undefined {
-  for (const name of INSTRUCTION_FILES) {
-    const file = join(cwd, name);
-    if (existsSync(file)) return { file, text: readFileSync(file, "utf8").trim() };
-  }
-  return undefined;
-}
 
 export function systemPrompt(cwd: string, now: Date = new Date()): string {
   const sections = [
@@ -25,8 +15,15 @@ export function systemPrompt(cwd: string, now: Date = new Date()): string {
     ].join("\n"),
     [`Working directory: ${cwd}`, `Platform: ${process.platform}`, `Date: ${now.toISOString().slice(0, 10)}`].join("\n"),
   ];
-  const instructions = projectInstructions(cwd);
-  if (instructions) sections.push(`Project instructions from ${instructions.file}:\n\n${instructions.text}`);
+  const directories = projectDirectories(cwd);
+  const instructions = loadInstructions(directories);
+  if (instructions.length) {
+    sections.push("Apply the following instructions in order. If instructions conflict, the later file takes precedence over the earlier file.");
+    for (const { file, text } of instructions) sections.push(`Instructions from ${file}:\n\n${text}`);
+  }
+  const skills = skillCatalog(directories);
+  for (const diagnostic of skills.diagnostics) process.stderr.write(`rx-agent: skills: ${diagnostic}\n`);
+  if (skills.prompt) sections.push(skills.prompt);
   return sections.join("\n\n");
 }
 
@@ -35,6 +32,7 @@ export interface RxAgentOptions {
   model: Model<Api>;
   thinking: ThinkingLevel;
   cwd: string;
+  systemPrompt: string;
   log: SessionLog;
   origin: Origin;
   messages?: AgentMessage[];
@@ -66,7 +64,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
       streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, streamOptions),
     sessionId: options.log.id,
     initialState: {
-      systemPrompt: systemPrompt(options.cwd),
+      systemPrompt: options.systemPrompt,
       model: options.model,
       thinkingLevel: options.thinking,
       tools: codingTools(options.cwd),
