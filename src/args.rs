@@ -23,7 +23,7 @@ impl Harness {
 
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::Agent => "agent",
+            Self::Agent => "rx-agent",
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
@@ -41,6 +41,9 @@ impl Harness {
     }
 
     pub(crate) fn parse(name: &str) -> Option<Self> {
+        if name == "agent" {
+            return Some(Self::Agent);
+        }
         Self::ALL.into_iter().find(|harness| harness.as_str() == name)
     }
 }
@@ -116,7 +119,7 @@ pub(crate) fn rewrite_argv0(mut args: Vec<OsString>) -> Vec<OsString> {
 pub(crate) fn argv0_harness(argv0: impl AsRef<OsStr>) -> Option<&'static str> {
     let name = Path::new(argv0.as_ref()).file_stem().and_then(|stem| stem.to_str()).unwrap_or("");
     match name {
-        "rxa" => Some("agent"),
+        "rxa" => Some("rx-agent"),
         "rxc" => Some("claude"),
         "rxx" => Some("codex"),
         "rxo" => Some("opencode"),

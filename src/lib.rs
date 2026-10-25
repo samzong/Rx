@@ -105,6 +105,9 @@ Usage:
 A TTY `rx` with no harness opens a picker; tab there selects a configured
 provider for that launch only. Scripts must pass a harness.
 
+Harnesses:
+  rx-agent (alias: agent, shortcut: rxa), claude, codex, opencode, pi, dsh, kimi
+
 Environment:
   RX_NO_UPDATE=1     skip launch-time update checks
   RX_NO_INSTALL=1    skip offering to install a missing harness

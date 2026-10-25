@@ -25,7 +25,8 @@ Usage:
   rx-agent login [provider]        sign in with a subscription or store an API key
   rx-agent logout <provider>       remove stored credentials for a provider
 
-\`rx agent\` and \`rxa\` start rx-agent with the selected rx provider.
+\`rx rx-agent\` and \`rxa\` start rx-agent with the selected rx provider.
+\`rx agent\` remains an alias.
 
 Options:
   -m, --model <provider/id>  model to use (default: RX_MODEL, then "model" in config.json,

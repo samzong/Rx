@@ -71,7 +71,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | Project `AGENTS.md` / `CLAUDE.md` and referenced files | user | Read into the system prompt under RX-CONTEXT-001. Never written by Rx itself. |
 | `~/.agents/skills` and project `.agents/skills` | user | Rx reads skill metadata at agent creation and load. The existing `read` tool loads skill bodies and references on demand. |
 | Provider environment variables | user | Read by pi-ai when the store has no credential for that provider. |
-| `RX_AGENT_PROVIDER`, `RX_MODEL` | Rx launcher | Set by `rx agent` / `rxa` for one launch; `RX_MODEL` only when `rx.toml` selects a model. rx-agent never persists them. |
+| `RX_AGENT_PROVIDER`, `RX_MODEL` | Rx launcher | Set by `rx rx-agent` / `rxa` for one launch; `RX_MODEL` only when `rx.toml` selects a model. rx-agent never persists them. |
 
 ## Instructions and skills
 

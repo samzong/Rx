@@ -186,7 +186,7 @@ fn validate_route_args(
         }
         Harness::Dsh => reject_flags(args, &["--profile", "--patch"]),
         Harness::Kimi => Ok(()),
-        Harness::Agent => bail!("hosted mode does not launch the rx agent"),
+        Harness::Agent => bail!("hosted mode does not launch rx-agent"),
     }
 }
 

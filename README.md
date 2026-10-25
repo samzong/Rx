@@ -44,7 +44,7 @@ catalog marker and lease files in place, including when rolling back Rx.
 
 | Harness | Commands |
 | --- | --- |
-| rx-agent | `rx agent`, `rxa` |
+| rx-agent | `rx rx-agent`, `rxa` (`rx agent` is an alias) |
 | Claude Code | `rx claude`, `rxc` |
 | Codex | `rx codex`, `rxx` |
 | OpenCode | `rx opencode`, `rxo` |
@@ -54,7 +54,7 @@ catalog marker and lease files in place, including when rolling back Rx.
 
 ### rx-agent
 
-`rx agent` and `rxa` start rx-agent with the selected provider, its cached
+`rx rx-agent` and `rxa` start rx-agent with the selected provider, its cached
 models, and its key in the child environment. The model is the first of
 `--model <provider>/<id>`, the provider-level `model` in `rx.toml`, `model` in
 `$RX_HOME/config.json` (default `~/.rx/config.json`), the provider's default
@@ -81,7 +81,7 @@ rx-agent logout <provider>   # remove stored credentials
 rx-agent works in the current directory with `read`, `write`, `edit`, and
 `bash`, running with your permissions and no sandbox. Sessions are append-only
 logs under `$RX_HOME/sessions/` (`RX_HOME` defaults to `~/.rx`). To use it from
-an editor that speaks ACP, configure the editor to run `rx agent acp`. See
+an editor that speaks ACP, configure the editor to run `rx rx-agent acp`. See
 [agent/DESIGN.md](agent/DESIGN.md) for its contract.
 
 rx-agent keeps its own credentials, separate from `rx providers`.

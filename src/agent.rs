@@ -43,7 +43,7 @@ pub(crate) fn route(
         Ok(models) => models,
         Err(error) if requested.or(fallback).is_some() => {
             notes.push(format!(
-                    "[rx] agent: provider catalog unavailable; handing off only the selected models: {error:#}"
+                    "[rx] rx-agent: provider catalog unavailable; handing off only the selected models: {error:#}"
                 ));
             Vec::new()
         }

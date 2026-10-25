@@ -104,9 +104,9 @@ _rx() {
       _rx_has_provider || flags+=' --provider'
       COMPREPLY=($(compgen -W "$flags" -- "$cur"))
     elif _rx_has_provider; then
-      COMPREPLY=($(compgen -W 'agent claude codex opencode pi dsh kimi' -- "$cur"))
+      COMPREPLY=($(compgen -W 'rx-agent agent claude codex opencode pi dsh kimi' -- "$cur"))
     else
-      COMPREPLY=($(compgen -W 'agent claude codex opencode pi dsh kimi providers update completions' -- "$cur"))
+      COMPREPLY=($(compgen -W 'rx-agent agent claude codex opencode pi dsh kimi providers update completions' -- "$cur"))
     fi
     return
   fi
@@ -144,7 +144,7 @@ _rx() {
     completions)
       ((${#pos[@]} == 1)) && COMPREPLY=($(compgen -W 'bash zsh fish' -- "$cur"))
       ;;
-    agent|claude|codex|opencode|pi|dsh|kimi)
+    rx-agent|agent|claude|codex|opencode|pi|dsh|kimi)
       if [[ $cur == -* ]] && ! _rx_has_provider; then
         COMPREPLY=($(compgen -W '--provider' -- "$cur"))
       fi
@@ -251,9 +251,9 @@ _rx() {
       _rx_has_provider || flags+=(--provider)
       compadd -- $flags
     elif _rx_has_provider; then
-      compadd -- agent claude codex opencode pi dsh kimi
+      compadd -- rx-agent agent claude codex opencode pi dsh kimi
     else
-      compadd -- agent claude codex opencode pi dsh kimi providers update completions
+      compadd -- rx-agent agent claude codex opencode pi dsh kimi providers update completions
     fi
     return
   fi
@@ -291,7 +291,7 @@ _rx() {
     completions)
       (( $#pos == 1 )) && compadd -- bash zsh fish
       ;;
-    agent|claude|codex|opencode|pi|dsh|kimi)
+    rx-agent|agent|claude|codex|opencode|pi|dsh|kimi)
       if [[ $cur == -* ]] && ! _rx_has_provider; then
         compadd -- --provider
       fi
@@ -380,11 +380,12 @@ end
 function __rx_has_harness
     set -l pos (__rx_pos)
     test (count $pos) -ge 1
-    and contains -- $pos[1] agent claude codex opencode pi dsh kimi
+    and contains -- $pos[1] rx-agent agent claude codex opencode pi dsh kimi
 end
 
 complete -c rx -f
-complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'agent' -d 'Rx agent'
+complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'rx-agent' -d 'rx-agent'
+complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'agent' -d 'Alias for rx-agent'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'claude' -d 'Claude Code'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'codex' -d 'Codex'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'opencode' -d 'OpenCode'
@@ -394,7 +395,7 @@ complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'kimi' -d 'Kimi Code'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'providers' -d 'Manage providers'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'update' -d 'Update Rx'
 complete -c rx -n '__rx_n 0; and not __rx_has_provider' -a 'completions' -d 'Generate shell completion script'
-complete -c rx -n '__rx_n 0; and __rx_has_provider' -a 'agent claude codex opencode pi dsh kimi'
+complete -c rx -n '__rx_n 0; and __rx_has_provider' -a 'rx-agent agent claude codex opencode pi dsh kimi'
 complete -c rx -n '__rx_n 0' -s h -l help
 complete -c rx -n '__rx_n 0' -s V -l version
 complete -c rx -n 'not __rx_has_provider; and __rx_n 0' -l provider -xa '(__rx_ids --targets)'
