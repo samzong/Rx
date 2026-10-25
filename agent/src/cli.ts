@@ -175,6 +175,7 @@ async function main(argv: string[]): Promise<number> {
   });
   mcp = await connectMcp({ home, cwd: agentCwd, signal: startup.signal });
   try {
+    for (const warning of mcp.warnings) process.stderr.write(`${warning}\n`);
     const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
     const log = loaded?.log ?? SessionLog.create(home, cwd);
     if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);

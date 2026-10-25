@@ -56,9 +56,11 @@ test("ACP restores compacted MCP history and replaces servers without replaying 
     assert.equal(records(log.path).filter((entry) => entry.type === "compaction").length, 1);
     appendFileSync(log.path, '{"torn"');
     const compacted = readFileSync(log.path);
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] }), /MCP server bad/);
-    assert.deepEqual(readFileSync(log.path), compacted);
-    process.kill(first, 0);
+    await ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] });
+    assert.deepEqual(readFileSync(log.path), compacted.subarray(0, compacted.length - 7));
+    assert.equal(h.sessions.get(sessionId)!.mcp.tools.length, 0);
+    assert.match(h.sessions.get(sessionId)!.mcp.warnings.join("\n"), /MCP server bad not connected/);
+    await assertProcessExited(first);
     const before = h.updates.length;
     await ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [h.server("next")] });
     await assertProcessExited(first);

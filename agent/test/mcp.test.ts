@@ -39,14 +39,61 @@ test("MCP names remain distinct after normalization and truncation", () => {
 test("MCP duplicate tool discovery reports a safe distinct failure and closes its child", async (t) => {
   const trace = join(tempDir(), "duplicate.jsonl");
   t.after(async () => { if (existsSync(trace)) { try { process.kill(await mcpPid(trace), "SIGKILL"); } catch {} } });
-  await assert.rejects(connectMcp({ home: tempDir(), cwd: tempDir(), servers: [stdio("duplicate", ["--duplicate-tool", `--trace=${trace}`])] }), /MCP server duplicate: duplicate tool name/);
-  await assertProcessExited(await mcpPid(trace));
+  const mcp = await connectMcp({ home: tempDir(), cwd: tempDir(), servers: [stdio("duplicate", ["--duplicate-tool", `--trace=${trace}`]), stdio("healthy")] });
+  try {
+    assert.throws(() => process.kill(JSON.parse(readFileSync(trace, "utf8").split("\n")[0]!).pid, 0), { code: "ESRCH" });
+    assert.match(mcp.warnings.join("\n"), /MCP server duplicate not connected: duplicate tool name/);
+    assert.equal(mcp.tools.some((tool) => tool.name.startsWith("mcp__duplicate__")), false);
+    assert.deepEqual((await mcp.tools.find((tool) => tool.name === "mcp__healthy__echo")!.execute("1", { value: "HEALTHY" })).content, [{ type: "text", text: "HEALTHY" }]);
+  } finally { await mcp.close(); }
 });
 
-test("MCP partial startup failure closes the servers that already connected", async (t) => {
+test("MCP startup timeout closes its child before returning", async (t) => {
+  const home = tempDir();
+  const trace = join(home, "timeout.jsonl");
+  t.after(async () => { if (existsSync(trace)) { try { process.kill(await mcpPid(trace), "SIGKILL"); } catch {} } });
+  writeFileSync(join(home, "mcp.json"), JSON.stringify({ mcpServers: { hanging: { command: process.execPath, args: [fixture, "--hang-list", `--trace=${trace}`], timeout: 0.3 } } }));
+  const mcp = await connectMcp({ home, cwd: tempDir() });
+  try {
+    assert.throws(() => process.kill(JSON.parse(readFileSync(trace, "utf8").split("\n")[0]!).pid, 0), { code: "ESRCH" });
+    assert.match(mcp.warnings.join("\n"), /MCP server hanging not connected: request timed out/);
+    assert.equal(mcp.tools.length, 0);
+  } finally { await mcp.close(); }
+});
+
+test("MCP cross-server tool collisions retain the first server and close the skipped child before returning", async (t) => {
+  const home = tempDir();
+  const firstTrace = join(home, "first.jsonl");
+  const skippedTrace = join(home, "skipped.jsonl");
+  t.after(async () => { for (const trace of [firstTrace, skippedTrace]) { if (existsSync(trace)) { try { process.kill(await mcpPid(trace), "SIGKILL"); } catch {} } } });
+  const collision = mcpToolName("a-b", "t");
+  const skippedTool = collision.slice("mcp__a_b__".length);
+  assert.equal(mcpToolName("a_b", skippedTool), collision);
+  const mcp = await connectMcp({ home, cwd: tempDir(), servers: [
+    stdio("a-b", ["--tool=t", `--trace=${firstTrace}`]),
+    stdio("a_b", [`--tool=${skippedTool}`, `--trace=${skippedTrace}`]),
+  ] });
+  try {
+    assert.throws(() => process.kill(JSON.parse(readFileSync(skippedTrace, "utf8").split("\n")[0]!).pid, 0), { code: "ESRCH" });
+    process.kill(await mcpPid(firstTrace), 0);
+    assert.equal(mcp.tools.length, 8);
+    assert.ok(mcp.tools.some((tool) => tool.name === mcpToolName("a-b", "echo")));
+    assert.equal(mcp.tools.some((tool) => tool.name === mcpToolName("a_b", "echo")), false);
+    assert.deepEqual(mcp.warnings, ["MCP server a_b not connected: duplicate tool name."]);
+    assert.deepEqual((await mcp.tools.find((tool) => tool.name === collision)!.execute("1", { value: "FIRST_SERVER" })).content, [{ type: "text", text: "FIRST_SERVER" }]);
+    assert.ok(readFileSync(firstTrace, "utf8").split("\n").filter(Boolean).some((line) => JSON.parse(line).event === "t"));
+  } finally { await mcp.close(); }
+});
+
+test("MCP partial startup failure keeps healthy servers connected", async (t) => {
   const trace = join(tempDir(), "partial.jsonl");
   t.after(async () => { if (existsSync(trace)) { try { process.kill(await mcpPid(trace), "SIGKILL"); } catch {} } });
-  await assert.rejects(connectMcp({ home: tempDir(), cwd: tempDir(), servers: [stdio("ready", [`--trace=${trace}`]), { name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] }), /MCP server bad/);
+  const mcp = await connectMcp({ home: tempDir(), cwd: tempDir(), servers: [stdio("ready", [`--trace=${trace}`]), { name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] });
+  try {
+    process.kill(await mcpPid(trace), 0);
+    assert.match(mcp.warnings.join("\n"), /MCP server bad/);
+    assert.equal(mcp.tools.length, 7);
+  } finally { await mcp.close(); }
   await assertProcessExited(await mcpPid(trace));
 });
 
@@ -70,15 +117,27 @@ test("MCP timeout and cancellation fail visibly and close the server", async () 
   assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
 });
 
-test("MCP startup failures, malformed configuration, and legacy SSE fail before logs", async () => {
+test("MCP startup failures, malformed configuration, and legacy SSE leave sessions usable", async () => {
   const home = tempDir();
   const cwd = tempDir();
-  await assert.rejects(connectMcp({ home, cwd, servers: [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] }), /MCP server bad: executable or working directory not found/);
-  await assert.rejects(connectMcp({ home, cwd, servers: [{ name: "sse", type: "sse", url: "http://localhost/sse", headers: [] }] }), /legacy SSE/);
+  const missing = await connectMcp({ home, cwd, servers: [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] });
+  assert.match(missing.warnings.join("\n"), /MCP server bad not connected: executable or working directory not found/);
+  assert.equal(missing.tools.length, 0);
+  await missing.close();
+  const sse = await connectMcp({ home, cwd, servers: [{ name: "sse", type: "sse", url: "http://localhost/sse", headers: [] }] });
+  assert.match(sse.warnings.join("\n"), /legacy SSE/);
+  await sse.close();
   writeFileSync(join(home, "mcp.json"), '{"secret":"do-not-echo",');
-  await assert.rejects(connectMcp({ home, cwd }), (error: Error) => error.message.endsWith("invalid JSON") && !error.message.includes("do-not-echo"));
-  writeFileSync(join(home, "mcp.json"), JSON.stringify({ mcpServers: { hanging: { command: process.execPath, args: [fixture, "--hang"], timeout: 0.05 } } }));
-  await assert.rejects(connectMcp({ home, cwd }), /request timed out/);
+  const malformed = await connectMcp({ home, cwd, servers: [stdio()] });
+  assert.match(malformed.warnings.join("\n"), /invalid JSON/);
+  assert.equal(malformed.warnings.join("\n").includes("do-not-echo"), false);
+  assert.equal(malformed.tools.length, 7);
+  await malformed.close();
+  writeFileSync(join(home, "mcp.json"), JSON.stringify({ mcpServers: { hanging: { command: process.execPath, args: [fixture, "--hang"], timeout: 0.3 } } }));
+  const hanging = await connectMcp({ home, cwd });
+  assert.match(hanging.warnings.join("\n"), /request timed out/);
+  assert.equal(hanging.tools.length, 0);
+  await hanging.close();
   assert.equal(existsSync(join(home, "sessions")), false);
 });
 

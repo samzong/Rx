@@ -195,9 +195,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
     if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
     const configuration = await snapshot(selection);
-    const mcp = await connectMcp({ home: options.home, cwd, servers, signal }).catch((error: unknown) => {
-      throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : "MCP connection failed");
-    });
+    const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     try {
       signal.throwIfAborted();
       const { log, messages, history = messages, usageMessages = messages } = start();
@@ -339,8 +337,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       if (signal.aborted) onClose();
       try {
         if (!live.cancelled) {
-          if (manual) await control.compact();
-          else await live.agent.prompt(text, images);
+          if (live.mcp.warnings.length) {
+            await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${live.mcp.warnings.join("\n")}\n` } } });
+            live.mcp.warnings.length = 0;
+          }
+          if (!live.cancelled) {
+            if (manual) await control.compact();
+            else await live.agent.prompt(text, images);
+          }
         }
       } catch (error) {
         if (!live.cancelled) throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
