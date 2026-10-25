@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk";
@@ -54,6 +54,7 @@ test("ACP restores compacted MCP history and replaces servers without replaying 
     assert.match(JSON.stringify(h.sessions.get(sessionId)!.agent.state.messages), /Recorded tool result mcp__first__echo/);
     assert.match(JSON.stringify(h.sessions.get(sessionId)!.agent.state.messages), /MCP_FACT/);
     assert.equal(records(log.path).filter((entry) => entry.type === "compaction").length, 1);
+    appendFileSync(log.path, '{"torn"');
     const compacted = readFileSync(log.path);
     await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }] }), /MCP server bad/);
     assert.deepEqual(readFileSync(log.path), compacted);

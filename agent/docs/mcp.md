@@ -7,7 +7,7 @@ MCP adds no permission prompt or sandbox.
 
 ## Contract
 
-RX-MCP-001: User MCP configuration and ACP new/load servers supply session tools through pi-mcp. ACP entries replace same-name user entries without persistence. Connections open before log creation or repair. Load and connection shutdown close replaced or finished connections. Only stdio and Streamable HTTP are supported. See [MCP tools](docs/mcp.md).
+RX-MCP-001: User MCP configuration and ACP new/load servers supply session tools through pi-mcp. ACP entries replace same-name user entries without persistence. Connections open before log creation or repair. Load and connection shutdown close replaced or finished connections. Only stdio and Streamable HTTP are supported.
 
 ## User configuration
 
