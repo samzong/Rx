@@ -11,7 +11,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,17 +35,11 @@ jobs:
         id: release
         shell: bash
         run: |
-          set -eu
-          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          if [ -z "$version" ] || [ "$RELEASE_TAG" != "v$version" ]; then
-            echo "::error::release tag $RELEASE_TAG does not match Cargo.toml version ${version:-missing}"
-            exit 1
-          fi
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]; then
-            echo "::error::checked out commit does not match release tag $RELEASE_TAG"
-            exit 1
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          sha="$(python3 scripts/release.py tag --product rx --tag "$RELEASE_TAG")"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - run: python3 -B scripts/test-release.py
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -58,46 +52,34 @@ jobs:
       - run: make check
 
   build:
+    needs: check
     uses: ./.github/workflows/build-binaries.yml
     with:
-      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      ref: ${{ needs.check.outputs.sha }}
       upload: true
 
   release:
     needs: [check, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: rx-release-publication
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
       - uses: actions/download-artifact@v5
         with:
+          pattern: rx-*
+          path: release-assets
           merge-multiple: true
-      - name: Verify release commit
-        shell: bash
-        env:
-          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
-        run: |
-          set -eu
-          if [ "$(git rev-parse HEAD)" != "$VALIDATED_SHA" ]; then
-            echo "::error::release tag moved after validation"
-            exit 1
-          fi
-          for built in rx-*.sha; do
-            sha="$(tr -d '[:space:]' < "$built")"
-            if [ "$sha" != "$VALIDATED_SHA" ]; then
-              echo "::error::$built was built from $sha, not from validated commit $VALIDATED_SHA"
-              exit 1
-            fi
-          done
-
-      - name: Publish release
+      - name: Publish Rx release and select latest
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="$RELEASE_TAG"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" --clobber rx-*.tar.gz rx-*.zip
-          else
-            gh release create "$tag" --title "$tag" --generate-notes rx-*.tar.gz rx-*.zip
-          fi
+          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: python3 scripts/release.py publish --product rx --tag "$RELEASE_TAG" --sha "$VALIDATED_SHA" --assets release-assets --repo "$RELEASE_REPO"

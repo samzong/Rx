@@ -146,6 +146,8 @@ SDK timeouts and aborts keep pi-ai's own error message.
 The full RX-COMPACT-001..005 contracts, budgets, and rationale are in
 [Context compaction](docs/context-compaction.md).
 
+[Distribution](docs/distribution.md)
+
 ## Change authority
 
 Agents may change internal structure, helpers, errors, prompts that do not

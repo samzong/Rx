@@ -1,0 +1,150 @@
+name: Agent release
+
+on:
+  push:
+    tags: ["rx-agent-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Agent release tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_REF: refs/tags/${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Validate agent release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(python3 scripts/release.py tag --product rx-agent --tag "$RELEASE_TAG")"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: agent/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: agent/pnpm-lock.yaml
+      - run: make agent-check
+      - run: python3 -B scripts/test-release.py
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-darwin-x64
+            os: macos-15-intel
+            artifact: rx-agent-darwin-x64
+          - target: bun-darwin-arm64
+            os: macos-latest
+            artifact: rx-agent-darwin-arm64
+          - target: bun-linux-x64-baseline
+            os: ubuntu-latest
+            artifact: rx-agent-linux-x64
+          - target: bun-windows-x64-baseline
+            os: windows-latest
+            artifact: rx-agent-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: agent/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: pnpm --dir agent install --frozen-lockfile
+      - name: Compile agent
+        shell: bash
+        env:
+          BUN_TARGET: ${{ matrix.target }}
+          BINARY: ${{ runner.os == 'Windows' && 'rx-agent.exe' || 'rx-agent' }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-bin
+          cd agent
+          bun build --compile --target "$BUN_TARGET" src/cli.ts --outfile "../release-bin/$BINARY"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify native binary
+        shell: bash
+        env:
+          BINARY: ${{ runner.os == 'Windows' && 'rx-agent.exe' || 'rx-agent' }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'JSON.parse(require("node:fs").readFileSync("agent/package.json", "utf8")).version')"
+          python scripts/probe-agent-release.py "release-bin/$BINARY" "$version"
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: tar -czf "$ARTIFACT.tar.gz" -C release-bin rx-agent
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: Compress-Archive -Path release-bin/rx-agent.exe -DestinationPath "$env:ARTIFACT.zip"
+      - name: Record built commit
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: git rev-parse HEAD > "$ARTIFACT.sha"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.*
+          if-no-files-found: error
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: rx-release-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: rx-agent-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish agent release and preserve Rx latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: python3 scripts/release.py publish --product rx-agent --tag "$RELEASE_TAG" --sha "$VALIDATED_SHA" --assets release-assets --repo "$RELEASE_REPO"

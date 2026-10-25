@@ -54,6 +54,27 @@ catalog marker and lease files in place, including when rolling back Rx.
 
 ### rx-agent
 
+Rx releases contain only the launcher. If rx-agent is missing, run `rxa` in a terminal.
+The launcher asks `[y/N]` before it installs the independently released agent.
+Enter declines. A refusal hides later picker recommendations, but an explicit launch still asks.
+`RX_NO_INSTALL=1` disables installation prompts.
+
+Rx looks for rx-agent on PATH, then beside Rx, then in its managed versions.
+A source installation from `make install` takes precedence over a managed version.
+Managed files live under `~/.recall/rx-agent/versions/`.
+Rx does not overwrite your source or package-manager installation.
+`make install` continues to install both binaries from source.
+
+When a launch uses a managed version and its last check is older than 24 hours,
+Rx starts a detached updater before it executes the selected version.
+Terminal and ACP launches use this same path, without an agent update prompt or download wait.
+The next agent process uses the new version. Existing processes keep their selected executable.
+`RX_NO_UPDATE=1` disables startup checks for both products.
+After activation, Rx keeps the current and previous versions and silently skips failed deletions.
+An older session can lose its executable directory after two updates. Rx does not detect versions still in use.
+`rx update` still updates only Rx. Homebrew installations use `brew upgrade rx` for Rx itself.
+See [distribution](agent/docs/distribution.md) for ownership, checksums, and acceptance limits.
+
 `rx rx-agent` and `rxa` start rx-agent with the selected provider, its cached
 models, and its key in the child environment. The model is the first of
 `--model <provider>/<id>`, the provider-level `model` in `rx.toml`, `model` in

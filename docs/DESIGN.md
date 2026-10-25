@@ -25,8 +25,8 @@ under the rules in [rx-agent](#rx-agent).
 
 | ID | Contract |
 | --- | --- |
-| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated installation. rx-agent is Rx's own CLI, not a fork (RX-AGENT-001). |
-| RX-INSTALL-001 | Run the official installer with the user's path-shaping environment. Manual and Rx installation must use the same command, environment, and location. |
+| RX-NATIVE-001 | Execute the installed native CLI, never an Rx fork, bundled copy, or relocated third-party installation. rx-agent is Rx-owned under RX-AGENT-001. |
+| RX-INSTALL-001 | For third-party harnesses, run the official installer with the user's path-shaping environment. Manual and Rx installation use the same command, environment, and location. Rx-managed rx-agent follows RX-AGENT-001. |
 | RX-INSTALL-002 | Discovery, installation, and verification use the same user-owned harness home; hosted state never participates. |
 | RX-ARGS-001 | Preserve argv and executable paths as OS strings. Treat everything after `--` as literal. |
 | RX-ROUTE-001 | `--provider none` or no provider means native passthrough without provider or model injection. |
@@ -36,12 +36,13 @@ under the rules in [rx-agent](#rx-agent).
 | RX-OWN-001 | Mutate only explicitly Rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
 | RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
 | RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
-| RX-AGENT-001 | The canonical harness name is `rx-agent`. `rx rx-agent`, the legacy alias `rx agent`, and `rxa` launch the same binary. `make install` installs the single-file `rx-agent` binary, compiled by `bun build --compile` from `agent/`, beside `rx`. Rx resolves it from `PATH`, then beside the running `rx`, and never downloads or installs it; when it is missing, Rx fails and names `make install`. |
+| RX-AGENT-001 | The canonical harness is `rx-agent`, launched by `rx rx-agent`, `rx agent`, and `rxa`. Discovery is PATH, then beside Rx, then a verified managed version under `~/.recall/rx-agent/versions/<version>/`. A missing-agent terminal launch can install that managed version after `[y/N]` approval. External installations always precede management and never trigger managed updates. Independent `rx-agent-v*` releases never become the repository latest release. Rx releases explicitly become latest. Both products require SHA256SUMS. `make install` continues to install both binaries. See [distribution](../agent/docs/distribution.md). |
 | RX-AGENT-002 | A provider launch hands rx-agent only the child environment: the provider key under the provider's `env` name, `RX_AGENT_PROVIDER` (provider id, name, API, base URL, key variable name, the catalog models, and `defaultModel`; a model with a bundled `anthropic-messages` capability entry also carries `api: anthropic-messages` and the provider's Messages base URL), and `RX_MODEL` as `provider/model` only when `rx.toml` sets the provider-level `model`. `defaultModel` is that `model`, else the provider's default model, else the first listed model. Catalog failure hands off only the `--model` and default models, and fails when neither exists. Argv is never rewritten. |
 | RX-AGENT-003 | Handed-off model capabilities follow RX-CATALOG-001: reasoning levels come only from the bundled snapshot for the protocol the model is handed off on, unlisted levels are sent as unsupported, and models without snapshot capabilities are sent with `reasoning: false`. A missing context length uses the provider's fallback context. |
 | RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
 | RX-CONCURRENCY-001 | Concurrent launches cannot retarget, corrupt, or delete another launch or user edit. |
-| RX-FAIL-001 | Non-interactive runs never install or destructively repair without approval; malformed user config is preserved and reported. |
+| RX-FAIL-001 | Non-interactive runs never install or destructively repair without approval. An accepted managed rx-agent can update in a detached process under RX-AGENT-004; malformed user config is preserved and reported. |
+| RX-AGENT-004 | Missing-agent terminal launches ask `[y/N]`, including after an earlier refusal. Only the picker recommends installation, and only before a refusal. `RX_NO_INSTALL` disables installation prompts. `RX_NO_UPDATE` disables both startup updaters. Rx self-update skips noninteractive, ACP, print, help, and version launches before checking the network. Every launch using an overdue managed agent spawns a detached updater with null stdio, the user's HTTP proxy settings, and no provider credentials, then executes its already selected absolute path. Terminal and ACP use the same path without an agent update prompt or download wait. Activation affects subsequent agent processes. ACP startup never reads protocol input, writes launcher output to stdout, or relaunches. Installation locks, validates SHA-256 and `--version`, then atomically switches selection. Failure preserves the old selection. After atomic activation, cleanup retains the current and previous versions, with no in-use detection. Other version directories receive one deletion attempt. Deletion failures are silent, with no retries. The owner accepts that two updates can remove an older running session's directory. |
 
 ## Ownership
 
@@ -56,6 +57,8 @@ under the rules in [rx-agent](#rx-agent).
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
 | `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json`, `mcp.json`, and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
+| `~/.recall/rx-agent/install.toml`, `versions/`, and locks | Rx | Accepted installation and refusal, immutable verified releases, and serialized installation. Malformed managed state fails closed when management is used. |
+| `~/.recall/rx-agent/update.toml` | Rx | Last agent update check only, separate from `rx-update.toml`. |
 | Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
 Injection preference is: flags or environment, immutable launch config, then a
@@ -132,7 +135,7 @@ models absent from the handoff are dropped. Other models get pi-ai custom-model
 defaults: text input, zero cost, and 16384 max output tokens.
 
 Context compaction belongs to rx-agent under RX-COMPACT-001..005 in its own contract.
-The launcher keeps the existing request, binary discovery, plan, configuration, and exec path.
+The launcher keeps the request, plan, configuration, and exec path. Binary discovery follows RX-AGENT-001.
 RX-AGENT-002/003 continue to supply endpoint-scoped model metadata and context windows.
 An API name does not establish native provider compaction support.
 Summary requests use the selected agent model and endpoint without a second credential route.

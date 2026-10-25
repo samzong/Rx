@@ -15,8 +15,8 @@ use crate::launch::EnvLookup;
 
 const GITHUB_REPO: &str = "samzong/Rx";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const LAUNCH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
-const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const LAUNCH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const HOMEBREW_UPDATE_HINT: &str = "Rx is managed by Homebrew; run `brew upgrade rx`";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub(crate) struct ReleaseInfo {
     pub version: String,
     pub asset_name: String,
     pub download_url: String,
+    pub checksum_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -78,12 +79,29 @@ pub(crate) fn maybe_before_launch(
     env: &EnvLookup,
     raw_args: &[std::ffi::OsString],
 ) -> Result<()> {
+    maybe_before_launch_with_interactivity(
+        paths,
+        env,
+        raw_args,
+        io::stdin().is_terminal() && io::stderr().is_terminal(),
+    )
+}
+
+pub(crate) fn maybe_before_launch_with_interactivity(
+    paths: &Paths,
+    env: &EnvLookup,
+    raw_args: &[std::ffi::OsString],
+    interactive: bool,
+) -> Result<()> {
+    if !interactive {
+        return Ok(());
+    }
     if env.get("RX_NO_UPDATE").is_some_and(|value| !value.is_empty() && value != "0") {
         return Ok(());
     }
     {
         let _lock = lock_state(paths)?;
-        if !should_check(&load_state(paths)?) {
+        if !should_check(load_state(paths)?.last_check.as_deref()) {
             return Ok(());
         }
     }
@@ -180,7 +198,11 @@ pub(crate) fn fetch_latest_release(timeout: Duration) -> Result<ReleaseInfo> {
     let body = http_get(&url, &[("Accept", "application/vnd.github+json")], timeout)?;
     let value: serde_json::Value = serde_json::from_str(&body).context("GitHub release JSON")?;
     let tag = value.get("tag_name").and_then(|v| v.as_str()).context("release missing tag_name")?;
-    let version = tag.trim_start_matches('v').to_string();
+    let version = tag
+        .strip_prefix('v')
+        .filter(|v| crate::agent_dist::release::stable_version(v).is_some())
+        .context("latest release is not an Rx stable release")?
+        .to_string();
     let assets =
         value.get("assets").and_then(|v| v.as_array()).context("release missing assets")?;
     let download_url = assets
@@ -189,13 +211,24 @@ pub(crate) fn fetch_latest_release(timeout: Duration) -> Result<ReleaseInfo> {
         .and_then(|asset| asset.get("browser_download_url").and_then(|v| v.as_str()))
         .with_context(|| format!("release asset not found: {asset_name}"))?
         .to_string();
-    Ok(ReleaseInfo { version, asset_name: asset_name.to_string(), download_url })
+    let checksum_url = assets
+        .iter()
+        .find(|asset| asset.get("name").and_then(|v| v.as_str()) == Some("SHA256SUMS"))
+        .and_then(|asset| asset.get("browser_download_url").and_then(|v| v.as_str()))
+        .unwrap_or_default()
+        .to_string();
+    Ok(ReleaseInfo { version, asset_name: asset_name.to_string(), download_url, checksum_url })
 }
 
 fn install_release(release: &ReleaseInfo) -> Result<()> {
+    if release.checksum_url.is_empty() {
+        bail!("release missing SHA256SUMS");
+    }
     let temp = tempfile::tempdir().context("create temp dir for update")?;
     let archive_path = temp.path().join(&release.asset_name);
     let bytes = http_get_bytes(&release.download_url, &[], HTTP_TIMEOUT)?;
+    let manifest = http_get(&release.checksum_url, &[], HTTP_TIMEOUT)?;
+    crate::agent_dist::release::verify_sha256(&bytes, &release.asset_name, &manifest)?;
     fs::write(&archive_path, bytes).context("write release download")?;
     let extracted = extract_rx_binary(&archive_path, temp.path())?;
     replace_executable(&extracted)
@@ -315,12 +348,30 @@ fn homebrew_update_hint(path: &Path) -> Option<&'static str> {
         .then_some(HOMEBREW_UPDATE_HINT)
 }
 
-fn http_get(url: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<String> {
+pub(crate) fn http_get(url: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<String> {
     let bytes = http_get_bytes(url, headers, timeout)?;
     String::from_utf8(bytes).context("response is not UTF-8")
 }
 
-fn http_get_bytes(url: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<Vec<u8>> {
+pub(crate) fn http_get_bytes(
+    url: &str,
+    headers: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<Vec<u8>> {
+    #[cfg(all(rx_release_fixture, not(test)))]
+    let fixture_url = std::env::var("RX_TEST_RELEASE_SOURCE").ok().and_then(|base| {
+        url.strip_prefix("https://api.github.com/repos/samzong/Rx")
+            .map(|suffix| format!("{base}{suffix}"))
+    });
+    #[cfg(test)]
+    let fixture_url = TEST_RELEASE_SOURCE.with(|source| {
+        source.borrow().as_ref().and_then(|base| {
+            url.strip_prefix("https://api.github.com/repos/samzong/Rx")
+                .map(|suffix| format!("{base}{suffix}"))
+        })
+    });
+    #[cfg(any(test, rx_release_fixture))]
+    let url = fixture_url.as_deref().unwrap_or(url);
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
@@ -332,7 +383,12 @@ fn http_get_bytes(url: &str, headers: &[(&str, &str)], timeout: Duration) -> Res
     }
     let mut response = request.call().with_context(|| format!("GET {url}"))?;
     let status = response.status().as_u16();
-    let body = response.body_mut().read_to_vec().context("read response body")?;
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(256 * 1024 * 1024)
+        .read_to_vec()
+        .context("read response body")?;
     if !(200..300).contains(&status) {
         bail!("HTTP {status}: {}", String::from_utf8_lossy(&body[..body.len().min(300)]));
     }
@@ -408,8 +464,8 @@ fn save_state(paths: &Paths, state: &UpdateState) -> Result<()> {
     crate::file_io::write(&state_path(paths), body.as_bytes())
 }
 
-fn should_check(state: &UpdateState) -> bool {
-    let Some(last_check) = &state.last_check else {
+pub(crate) fn should_check(last_check: Option<&str>) -> bool {
+    let Some(last_check) = last_check else {
         return true;
     };
     let Some(parsed) = last_check
@@ -422,9 +478,14 @@ fn should_check(state: &UpdateState) -> bool {
     SystemTime::now().duration_since(parsed).is_ok_and(|elapsed| elapsed >= CHECK_INTERVAL)
 }
 
-fn now_unix_seconds() -> String {
+pub(crate) fn now_unix_seconds() -> String {
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     format!("{seconds}")
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_RELEASE_SOURCE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -442,7 +503,11 @@ mod tests {
             (u64::MAX.to_string(), true),
         ] {
             fs::write(state_path(&paths), format!("last_check = {last_check:?}\n")).unwrap();
-            assert_eq!(should_check(&load_state(&paths).unwrap()), expected, "{last_check}");
+            assert_eq!(
+                should_check(load_state(&paths).unwrap().last_check.as_deref()),
+                expected,
+                "{last_check}"
+            );
         }
     }
 }
