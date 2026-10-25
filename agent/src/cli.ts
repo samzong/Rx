@@ -13,6 +13,7 @@ import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
 import { VERSION } from "./version.ts";
+import { connectMcp, type McpConnection } from "./mcp.ts";
 
 const HELP = `rx-agent ${VERSION} - the Rx coding agent
 
@@ -42,6 +43,7 @@ Files:
   $RX_HOME (default ~/.rx)/config.json   {"model": "provider/id", "thinking": "medium"}
   $RX_HOME/sessions/<id>.jsonl           append-only session logs
   $RX_HOME/auth.json                     credentials stored by rx-agent login
+  $RX_HOME/mcp.json                      MCP servers, using the mcpServers object
   $RX_HOME/device-id                     installation id sent to providers that require one
   AGENTS.md or CLAUDE.md                 project instructions from the Git root through the working directory
   .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
@@ -160,22 +162,32 @@ async function main(argv: string[]): Promise<number> {
   const resumeId = values.continue ? listSessions(home, cwd)[0]?.id : values.resume;
   if (values.continue && !resumeId) throw new Error(`no saved session for ${cwd}`);
   const choice = await choose();
-  const prompt = systemPrompt(resumeId ? readSessionHeader(home, resumeId).cwd : cwd);
-  const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
-  const log = loaded?.log ?? SessionLog.create(home, cwd);
-  if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);
-  const agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages });
-  onTerminate(() => {
-    agent.abort();
-    return agent.waitForIdle();
+  const agentCwd = resumeId ? readSessionHeader(home, resumeId).cwd : cwd;
+  const prompt = systemPrompt(agentCwd);
+  const startup = new AbortController();
+  let agent: ReturnType<typeof createRxAgent> | undefined;
+  let mcp: McpConnection | undefined;
+  onTerminate(async () => {
+    startup.abort();
+    agent?.abort();
+    await agent?.waitForIdle();
+    await mcp?.close();
   });
-
-  if (values.print !== undefined) return runPrint(agent, values.print);
-  const banner = loaded
-    ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
-    : `rx ${VERSION} · session ${log.id}`;
-  await runRepl(agent, banner);
-  return 0;
+  mcp = await connectMcp({ home, cwd: agentCwd, signal: startup.signal });
+  try {
+    const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
+    const log = loaded?.log ?? SessionLog.create(home, cwd);
+    if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);
+    agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages, tools: mcp.tools });
+    if (values.print !== undefined) return await runPrint(agent, values.print);
+    const banner = loaded
+      ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
+      : `rx ${VERSION} · session ${log.id}`;
+    await runRepl(agent, banner);
+    return 0;
+  } finally {
+    await mcp.close();
+  }
 }
 
 main(process.argv.slice(2)).then(

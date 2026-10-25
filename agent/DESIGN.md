@@ -26,6 +26,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | `src/instructions.ts` | Finds the project boundary and loads instructions with local file references. |
 | `src/skills.ts` | Finds skill files and uses pi-coding-agent to load metadata and format the catalog. |
 | `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
+| `src/mcp.ts` | User and ACP MCP configuration, connections, and tool adaptation. |
 | `src/session-log.ts` | Append-only JSONL session log, resume repair, and session listing. |
 | `src/models.ts` | Model and thinking-level resolution through pi-ai `Models`. |
 | `src/rx-provider.ts` | Validates the `RX_AGENT_PROVIDER` handoff and registers its provider and models. |
@@ -56,21 +57,25 @@ side of the provider handoff is RX-AGENT-001..003 in
 | RX-ACP-001 | ACP v1 uses SDK 2.0.2 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. Load uses current launch defaults, then the client can reapply its saved choices. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
 | RX-ACP-002 | Each model exposes only its pi-ai thinking levels. Switching models clamps thinking to the new model and resets Fast. Boolean controls require the client capability. Lody receives per-model levels and Fast support through its versioned metadata because standard configuration options describe only the current model. |
 | RX-ACP-003 | Fast is available only for the native openai-codex subscription endpoint and exact models supported by the Codex 0.163.0 catalog and current Speed documentation. Rx retains streamSimple and injects service_tier: priority through onPayload. Other providers and endpoints receive no Fast injection. |
-| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint. Summary requests do not report working-context usage. Measurements before a checkpoint are no longer current. Image input requires the current model's image capability. Rx does not connect MCP servers and reports this limitation on stderr when servers are supplied. HTTP and SSE MCP capabilities are false. |
+| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint. Summary requests do not report working-context usage. Measurements before a checkpoint are no longer current. Image input requires the current model's image capability. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
+| RX-MCP-001 | User and ACP MCP servers supply session tools through pi-mcp. See the full [MCP contract](docs/mcp.md#contract). |
 
-| RX-COMPACT-001 | Automatic compaction is enabled before each working request, including requests after tools. Its ceiling is the lower of 80% of the selected window and the room left after pi-ai's safety reserve and an output allowance. A valid working measurement supplies the baseline plus an estimate of newer messages; otherwise Rx estimates message content without provider signatures or response metadata. Small windows reduce summary and recent-history budgets. An infeasible estimated summary plan leaves the original request to the provider; an estimate alone cannot prove that the original request will not fit. Fixed instructions and current input are never silently truncated. An empty history does not cause a summary request. |
-| RX-COMPACT-002 | A successful compaction appends one `compaction` checkpoint with `version: 1` to the existing v1 log. It records the raw message count covered, summary, and recent visible records. Only a complete, valid checkpoint changes the active context. Failed summaries or appends preserve the earlier projection. Raw history remains complete. Older Rx readers ignore this event and replay full history, which can overflow again. This is a downgrade limitation, not full compatibility. |
-| RX-COMPACT-003 | Summaries use the selected model, endpoint, and credentials, request thinking off, and allow at most eight sequential requests. Rx sets the provider output limit and aborts streamed visible output that exceeds its conservative estimate. Subscription endpoints can omit the provider limit; hidden reasoning has no client-enforced hard limit. Rx covers the entire selected source without silently dropping old input. Reaching the request limit fails without a checkpoint. Summary failures, empty output, output truncation, or tool calls cannot become checkpoints. Generic compaction replaces old native reasoning and tool protocol with a text summary and recent visible records. Recent images retain their image blocks. |
-| RX-COMPACT-004 | Only an explicit context overflow with no delivered content or tool calls in the failed response permits one recovery attempt. A smaller checkpoint must be committed first. Recovery continues from that projection and never replays tools. Other errors and a second overflow end the run. Cancellation ends the activity and prevents further requests. A completed checkpoint remains valid after cancellation. |
-| RX-COMPACT-005 | The REPL and ACP accept `/compact` only as an exact plain-text command without arguments. Print mode sends its input as a normal prompt. ACP advertises the command on new and load. Each compaction reports one lifecycle: standard ACP updates when the client declares support, otherwise a synthetic tool activity with Lody context-compaction metadata. Every start ends as completed or failed, including cancellation. This activity is not an executable tool. |
+| RX-COMPACT-001 | Automatic request budgets. [Full contract][compaction]. |
+| RX-COMPACT-002 | Append-only checkpoints. [Full contract][compaction]. |
+| RX-COMPACT-003 | Bounded summaries. [Full contract][compaction]. |
+| RX-COMPACT-004 | Overflow recovery and cancellation. [Full contract][compaction]. |
+| RX-COMPACT-005 | REPL and ACP lifecycle. [Full contract][compaction]. |
+
+[compaction]: docs/context-compaction.md
 
 ## Ownership
 
 | Surface | Owner | Rule |
 | --- | --- | --- |
 | `$RX_HOME/config.json` | user | Rx reads `model` and `thinking`; it never writes the file. |
+| `$RX_HOME/mcp.json` | user | Read-only MCP server definitions under RX-MCP-001. |
 | `$RX_HOME/AGENTS.md` and referenced files | user | Rx reads global instructions. Users can create a symlink to their shared instructions. Rx never creates that link. |
 | `$RX_HOME/sessions/<id>.jsonl` | Rx | Created and appended by Rx only. |
 | `$RX_HOME/sessions/<id>.lock` | Rx | Written while a process holds the session; removed when that process exits. |
@@ -104,9 +109,9 @@ The strongest alternative is the low-level `stream` API with `serviceTier`.
 Rx retains `streamSimple` for thinking-level conversion and `onPayload` forwarding in pi-ai 1.4.0.
 If the dependency changes, run a payload probe to test that forwarding.
 
-Lody sends its built-in stdio MCP server even without HTTP MCP support.
-The stable protocol has no flag to disable stdio MCP. Rx adds no MCP client or approval policy.
-Ordinary chat retains four tools, excluding Lody's server tools.
+Lody sends workspace MCP servers through ACP new and load.
+Rx connects those servers and reports HTTP support, with legacy SSE unsupported.
+MCP tools use the same execution, cancellation, logging, and ACP result path as local tools.
 Global image support means at least one available model accepts images.
 Each prompt rejects unsupported images before logging or provider access.
 
@@ -138,47 +143,8 @@ SDK timeouts and aborts keep pi-ai's own error message.
 
 ## Context compaction
 
-Rx owns the budget and checkpoint projection through pi-agent-core `prepareRequest`.
-The returned loop context and the Agent state both change after the log append succeeds.
-The current system message and tool declarations remain independent of the checkpoint.
-Load rebuilds current instructions under RX-CONTEXT-001 and RX-RESUME-001.
-
-The budget reserves pi-ai 1.4.0's 4096 safety tokens and an output allowance of 10% of the window, with a 256-token floor.
-The allowance cannot exceed the selected model's output limit.
-The summary limit is the lower of 4096 tokens, the model output limit, and 10% of the request ceiling.
-Recent history targets the lower of 20000 tokens and 25% of the ceiling.
-These are initial limits. Token estimates include text, images, instructions, and tools, but are not exact tokenizer counts.
-The fallback uses pi's content estimate with a Unicode adjustment and excludes signatures, usage objects, timestamps, and response metadata.
-The conservative text estimate used to bound summary chunks and streamed output is independent of the working-context estimate.
-Only working responses from the current agent instance supply measured budget baselines.
-A valid baseline replaces the full estimate; it is not the maximum of those two values.
-The baseline must match the model, API, endpoint, and current system messages and tool declarations.
-Changed instructions, endpoints, models, or checkpoints cannot reuse a mismatched measurement.
-If the estimated fixed instructions or current input leave no room for a summary, automatic compaction sends the original request without truncation.
-The provider can accept it or return an explicit overflow, which permits the existing single recovery attempt.
-Manual compaction still reports an infeasible summary plan without changing the log.
-Tiny windows that cannot hold pi's summary request can still reach the native working request.
-
-Rx reuses pi-coding-agent 1.4.0 `estimateTokens` and `generateSummaryWithUsage`.
-Rx converts source records to visible transcripts before the helper because its native serializer truncates tool results and omits images.
-Summary requests carry a capped model output limit because the helper does not set `maxTokens` itself.
-Summary requests select thinking off so a thinking allowance does not consume a small answer budget.
-The working request retains the user's thinking level.
-Rx also monitors streamed text and visible thinking, aborts output that exceeds the estimate, and rejects an over-budget final usage report.
-An in-flight delta can arrive before cancellation takes effect.
-Codex and ChatGPT subscription endpoints omit the provider output limit in pi-ai 1.4.0.
-Their hidden reasoning cannot be counted during streaming; Rx does not promise a hard usage or billing cap.
-Models that cannot disable reasoning can still use the provider's lowest supported effort or default.
-Older images are described as omitted and require a new read when visual detail matters.
-The complete original image, reasoning, and provider signatures remain in the raw log.
-
-The strongest alternative is pi `AgentSession` with `SessionManager`.
-That path also owns persistence, settings, and a session tree, which conflict with Rx's existing log owner.
-A transient `transformContext` summary is smaller but loses its checkpoint after restart and repeats paid summary calls.
-Rx therefore keeps its own persisted projection and uses pi's public helpers without importing private preparation code.
-Revisit this choice if measured maintenance cost exceeds the value of owning context and session data.
-Eight summary requests cap one operation. Oversized archives fail with their original history intact.
-No background compaction, tool-result pruning, separate summary model, native provider compaction, or cross-session memory is included.
+The full RX-COMPACT-001..005 contracts, budgets, and rationale are in
+[Context compaction](docs/context-compaction.md).
 
 ## Change authority
 

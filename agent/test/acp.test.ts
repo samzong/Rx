@@ -291,7 +291,7 @@ test("session configuration changes the next model call and load returns a fresh
   await client.connectWith(app, async (ctx) => {
     const init = await ctx.request(acp.methods.agent.initialize, { protocolVersion: 1, clientCapabilities: { session: { configOptions: { boolean: {} } } } });
     assert.equal(init.agentCapabilities?.promptCapabilities?.image, true);
-    assert.deepEqual(init.agentCapabilities?.mcpCapabilities, { http: false, sse: false });
+    assert.deepEqual(init.agentCapabilities?.mcpCapabilities, { http: true, sse: false });
     const created = await newSession(ctx, cwd);
     const { sessionId } = created;
     assert.deepEqual(created.configOptions?.map((option) => option.category), ["model", "thought_level"]);

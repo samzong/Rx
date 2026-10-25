@@ -84,6 +84,9 @@ logs under `$RX_HOME/sessions/` (`RX_HOME` defaults to `~/.rx`). To use it from
 an editor that speaks ACP, configure the editor to run `rx rx-agent acp`. See
 [agent/DESIGN.md](agent/DESIGN.md) for its contract.
 
+Add MCP servers in `$RX_HOME/mcp.json` or supply them through ACP new/load.
+rx-agent supports stdio and Streamable HTTP. See [MCP tools](agent/docs/mcp.md).
+
 Long sessions compact automatically before a model request reaches its context budget.
 In the REPL or ACP, enter `/compact` to compact the session now.
 Stop cancels a summary request. The complete session history remains in the log.
