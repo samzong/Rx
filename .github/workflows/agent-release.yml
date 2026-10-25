@@ -101,13 +101,27 @@ jobs:
         shell: bash
         env:
           ARTIFACT: ${{ matrix.artifact }}
-        run: tar -czf "$ARTIFACT.tar.gz" -C release-bin rx-agent
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = macOS ]; then
+            codesign --force --sign - release-bin/rx-agent
+            codesign --verify --strict release-bin/rx-agent
+          fi
+          tar -czf "$ARTIFACT.tar.gz" -C release-bin rx-agent
+          mkdir smoke
+          tar -xzf "$ARTIFACT.tar.gz" -C smoke
+          test "$(smoke/rx-agent --version)" = "$(node -p 'require("./agent/package.json").version')"
       - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           ARTIFACT: ${{ matrix.artifact }}
-        run: Compress-Archive -Path release-bin/rx-agent.exe -DestinationPath "$env:ARTIFACT.zip"
+        run: |
+          Compress-Archive -Path release-bin/rx-agent.exe -DestinationPath "$env:ARTIFACT.zip"
+          Expand-Archive -Path "$env:ARTIFACT.zip" -DestinationPath smoke
+          $expected = (Get-Content agent/package.json -Raw | ConvertFrom-Json).version
+          $actual = & smoke/rx-agent.exe --version
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) { throw "smoke test failed: '$actual' != '$expected'" }
       - name: Record built commit
         shell: bash
         env:
