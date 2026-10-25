@@ -84,6 +84,12 @@ logs under `$RX_HOME/sessions/` (`RX_HOME` defaults to `~/.rx`). To use it from
 an editor that speaks ACP, configure the editor to run `rx rx-agent acp`. See
 [agent/DESIGN.md](agent/DESIGN.md) for its contract.
 
+Long sessions compact automatically before a model request reaches its context budget.
+In the REPL or ACP, enter `/compact` to compact the session now.
+Stop cancels a summary request. The complete session history remains in the log.
+Resume uses the latest completed checkpoint. Older Rx versions replay the full history and can overflow again.
+Generic summaries do not replay old native reasoning or signed thinking.
+
 rx-agent keeps its own credentials, separate from `rx providers`.
 `rx-agent login` without a provider lists the providers that support login.
 ChatGPT subscriptions (`openai` or `openai-codex`) sign in through the browser

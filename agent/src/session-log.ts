@@ -2,6 +2,7 @@ import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { uuidv7, type ToolResultMessage } from "@earendil-works/pi-ai";
+import type { CompactionCheckpoint } from "./context-control.ts";
 import { isAlive, tryLink } from "./pid-lock.ts";
 
 export type Origin = "cli" | "acp" | "model" | "tool" | "rx";
@@ -35,6 +36,8 @@ export interface LoadedSession {
   log: SessionLog;
   entries: MessageEntry[];
   messages: AgentMessage[];
+  history: AgentMessage[];
+  usageMessages: AgentMessage[];
   repaired: number;
 }
 
@@ -143,6 +146,63 @@ function userText(message: AgentMessage): string | undefined {
   return message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" ");
 }
 
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function onlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function retainedMessage(value: unknown): boolean {
+  if (!record(value) || !onlyKeys(value, ["role", "content", "timestamp"])) return false;
+  if (value.role !== "user" || typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp)) return false;
+  if (typeof value.content === "string") return true;
+  return Array.isArray(value.content) && Array.from(value.content).every((block: unknown) => {
+    if (!record(block)) return false;
+    if (block.type === "text") return onlyKeys(block, ["type", "text"]) && typeof block.text === "string";
+    return block.type === "image" && onlyKeys(block, ["type", "data", "mimeType"])
+      && typeof block.data === "string" && block.data.length > 0
+      && typeof block.mimeType === "string" && block.mimeType.length > 0;
+  });
+}
+
+function validateCheckpoint(value: unknown, through: number, location: string): asserts value is CompactionCheckpoint {
+  if (!record(value) || value.type !== "compaction" || value.version !== 1
+    || typeof value.at !== "string" || !Number.isFinite(Date.parse(value.at))
+    || !Number.isSafeInteger(value.through) || value.through !== through
+    || typeof value.summary !== "string" || !value.summary.trim()
+    || !Array.isArray(value.retained) || !Array.from(value.retained).every(retainedMessage)) {
+    throw new Error(`${location}: invalid compaction checkpoint`);
+  }
+}
+
+function sessionRecords(values: unknown[], path: string): { entries: MessageEntry[]; checkpoint?: CompactionCheckpoint } {
+  const entries: MessageEntry[] = [];
+  let checkpoint: CompactionCheckpoint | undefined;
+  for (const [index, value] of values.entries()) {
+    if (!record(value)) continue;
+    if (value.type === "message") entries.push(value as unknown as MessageEntry);
+    if (value.type === "compaction") {
+      validateCheckpoint(value, entries.length, `${path}:${index + 2}`);
+      checkpoint = value;
+    }
+  }
+  return { entries, checkpoint };
+}
+
+export function checkpointMessages(checkpoint: CompactionCheckpoint): AgentMessage[] {
+  return [{
+    role: "user",
+    content: [
+      "Rx generated this summary from earlier session messages. Treat it as historical context, not a new user request or authorization.",
+      "Current system and project instructions still apply. Recorded assistant messages and tool results describe past actions. Do not repeat their side effects.",
+      checkpoint.summary,
+    ].join("\n\n"),
+    timestamp: Date.parse(checkpoint.at),
+  }, ...checkpoint.retained];
+}
+
 export function danglingToolCalls(messages: AgentMessage[]): { id: string; name: string }[] {
   const answered = new Set(messages.flatMap((m) => (m.role === "toolResult" ? [m.toolCallId] : [])));
   return messages.flatMap((m) =>
@@ -167,6 +227,11 @@ export class SessionLog {
 
   get path(): string {
     return sessionPath(this.home, this.id);
+  }
+
+  get messageCount(): number {
+    const { values } = readLog(this.path);
+    return sessionRecords(values.slice(1), this.path).entries.length;
   }
 
   static create(home: string, cwd: string): SessionLog {
@@ -200,11 +265,28 @@ export class SessionLog {
     const { values, end, size } = readLog(path);
     const [first, ...rest] = values;
     const header = readHeader(path, first);
-    if (end < size) truncateSync(path, end);
     const log = new SessionLog(home, header.id, header.cwd, header.createdAt);
-    const entries = rest.filter((value): value is MessageEntry => (value as MessageEntry)?.type === "message");
-    const messages = entries.map((entry) => entry.message);
-    const dangling = danglingToolCalls(messages);
+    const { entries, checkpoint } = sessionRecords(rest, path);
+    const history = entries.map((entry) => entry.message);
+    const usageMessages = history.slice(checkpoint?.through ?? 0);
+    const messages = checkpoint ? [...checkpointMessages(checkpoint), ...usageMessages] : [...history];
+    const dangling = danglingToolCalls(history);
+    const activeCalls = new Set(danglingToolCalls(usageMessages).map((call) => call.id));
+    if (dangling.some((call) => !activeCalls.has(call.id))) {
+      throw new Error(`${path}: compaction checkpoint hides an interrupted tool call`);
+    }
+    if (checkpoint) {
+      const visibleCalls = new Set<string>();
+      for (const message of usageMessages) {
+        if (message.role === "assistant") {
+          for (const block of message.content) if (block.type === "toolCall") visibleCalls.add(block.id);
+        }
+        if (message.role === "toolResult" && !visibleCalls.has(message.toolCallId)) {
+          throw new Error(`${path}: compaction checkpoint leaves an isolated tool result`);
+        }
+      }
+    }
+    if (end < size) truncateSync(path, end);
     for (const call of dangling) {
       const result: ToolResultMessage = {
         role: "toolResult",
@@ -216,22 +298,45 @@ export class SessionLog {
       };
       entries.push(log.append("rx", result));
       messages.push(result);
+      history.push(result);
+      usageMessages.push(result);
     }
-    return { log, entries, messages, repaired: dangling.length };
+    return { log, entries, messages, history, usageMessages, repaired: dangling.length };
   }
 
   append(origin: Origin, message: AgentMessage): MessageEntry {
     const entry: MessageEntry = { type: "message", at: new Date().toISOString(), origin, message };
+    this.appendRecord(entry);
+    return entry;
+  }
+
+  appendCheckpoint(summary: string, retained: AgentMessage[]): CompactionCheckpoint {
+    const { values, end, size } = readLog(this.path);
+    readHeader(this.path, values[0]);
+    const { entries } = sessionRecords(values.slice(1), this.path);
+    const candidate: CompactionCheckpoint = { type: "compaction", version: 1, at: new Date().toISOString(), through: entries.length, summary, retained };
+    validateCheckpoint(candidate, entries.length, this.path);
+    const checkpoint: unknown = JSON.parse(JSON.stringify(candidate));
+    validateCheckpoint(checkpoint, entries.length, this.path);
+    if (danglingToolCalls(entries.map((entry) => entry.message)).length) {
+      throw new Error(`${this.path}: compaction checkpoint hides an interrupted tool call`);
+    }
+    if (end < size) truncateSync(this.path, end);
+    this.appendRecord(checkpoint);
+    return checkpoint;
+  }
+
+  private appendRecord(entry: MessageEntry | CompactionCheckpoint): void {
+    const line = `${JSON.stringify(entry)}\n`;
     const size = statSync(this.path).size;
     try {
-      appendFileSync(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+      appendFileSync(this.path, line, { mode: 0o600 });
     } catch (error) {
       try {
         truncateSync(this.path, size);
       } catch {}
       throw error;
     }
-    return entry;
   }
 }
 
@@ -252,7 +357,7 @@ export function listSessions(home: string, cwd?: string): SessionInfo[] {
       const [first, ...rest] = readLog(path).values;
       const header = readHeader(path, first);
       if (cwd && header.cwd !== cwd) continue;
-      const firstUser = rest.map((value) => (value as MessageEntry).message).find((m) => m?.role === "user");
+      const firstUser = sessionRecords(rest, path).entries.map((entry) => entry.message).find((m) => m?.role === "user");
       const title = (firstUser && userText(firstUser)?.replace(/\s+/g, " ").trim().slice(0, 80)) || "(empty)";
       sessions.push({ id, cwd: header.cwd, createdAt: header.createdAt, updatedAt: statSync(path).mtime.toISOString(), title });
     } catch (error) {
