@@ -12,6 +12,7 @@ import type { AcpSelection } from "./acp-state.ts";
 import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { VERSION } from "./version.ts";
+import { connectMcp, type McpConnection } from "./mcp.ts";
 
 export interface AcpOptions {
   home: string;
@@ -26,6 +27,7 @@ interface LiveSession {
   cancelled: boolean;
   configuring: boolean;
   selection: AcpSelection;
+  mcp: McpConnection;
 }
 
 type Update = acp.SessionUpdate;
@@ -108,6 +110,7 @@ export function eventUpdates(cwd: string, event: AgentEvent): Update[] {
   }
   if (event.type === "tool_execution_start") return [toolCallStart(cwd, event.toolCallId, event.toolName, event.args, "in_progress")];
   if (event.type === "tool_execution_end") return [toolCallEnd(event.toolCallId, event.isError, event.result?.content)];
+  if (event.type === "tool_execution_update") return [{ sessionUpdate: "tool_call_update", toolCallId: event.toolCallId, status: "in_progress", content: resultContent(event.partialResult.content) }];
   return [];
 }
 
@@ -139,6 +142,7 @@ function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReaso
 
 export function createAcpApp(options: AcpOptions, sessions = new Map<string, LiveSession>()): acp.AgentApp {
   let booleanSupported = false;
+  const opening = new Set<string>();
 
   const snapshot = async (selection: AcpSelection) => {
     const configOptions = await sessionConfigOptions(options.models, selection, supportsFast, booleanSupported);
@@ -152,11 +156,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
   };
 
-  const reportUnsupportedMcp = (servers: acp.McpServer[]) => {
-    if (servers.length) process.stderr.write("rx-agent: MCP servers are not supported and will not be connected\n");
-  };
-
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[] }, requireCwd = false): Promise<{ live: LiveSession; messages: AgentMessage[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; messages: AgentMessage[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
     let choice: ModelChoice;
     let prompt: string;
     try {
@@ -171,11 +171,20 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
     if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
     const configuration = await snapshot(selection);
-    const { log, messages } = start();
-    const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast });
-    const live: LiveSession = { agent, log, selection, running: false, cancelled: false, configuring: false };
-    sessions.set(log.id, live);
-    return { live, messages, configuration };
+    const mcp = await connectMcp({ home: options.home, cwd, servers, signal }).catch((error: unknown) => {
+      throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : "MCP connection failed");
+    });
+    try {
+      signal.throwIfAborted();
+      const { log, messages } = start();
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools });
+      const live: LiveSession = { agent, log, selection, mcp, running: false, cancelled: false, configuring: false };
+      sessions.set(log.id, live);
+      return { live, messages, configuration };
+    } catch (error) {
+      await mcp.close();
+      throw error;
+    }
   };
 
   const get = (sessionId: string): LiveSession => {
@@ -186,6 +195,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
 
   return acp
     .agent({ name: "rx" })
+    .onConnect((connection) => {
+      connection.signal.addEventListener("abort", () => {
+        for (const live of sessions.values()) {
+          live.agent.abort();
+          void live.agent.waitForIdle().then(() => live.mcp.close());
+        }
+      }, { once: true });
+    })
     .onRequest(acp.methods.agent.initialize, async ({ params }) => {
       booleanSupported = params.clientCapabilities?.session?.configOptions?.boolean != null;
       const available = await options.models.getAvailable();
@@ -194,38 +211,41 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         agentCapabilities: {
           loadSession: true,
           promptCapabilities: { image: available.some((model) => model.input.includes("image")), audio: false, embeddedContext: true },
-          mcpCapabilities: { http: false, sse: false },
+          mcpCapabilities: { http: true, sse: false },
           sessionCapabilities: { list: {} },
         },
         authMethods: [],
         agentInfo: { name: "rx", title: "Rx", version: VERSION },
       };
     })
-    .onRequest(acp.methods.agent.session.new, async ({ params }) => {
-      reportUnsupportedMcp(params.mcpServers);
-      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), true);
+    .onRequest(acp.methods.agent.session.new, async ({ params, signal }) => {
+      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, true);
       return { sessionId: live.log.id, ...configuration };
     })
-    .onRequest(acp.methods.agent.session.load, async ({ params, client }) => {
-      reportUnsupportedMcp(params.mcpServers);
+    .onRequest(acp.methods.agent.session.load, async ({ params, client, signal }) => {
       const previous = sessions.get(params.sessionId);
-      if (previous?.running || previous?.configuring) throw acp.RequestError.invalidRequest(undefined, "session is running or changing configuration");
+      if (opening.has(params.sessionId) || previous?.running || previous?.configuring) throw acp.RequestError.invalidRequest(undefined, "session is running or changing configuration");
       const { cwd } = readSessionHeader(options.home, params.sessionId);
       if (cwd !== params.cwd) throw acp.RequestError.invalidParams(undefined, `session ${params.sessionId} belongs to ${cwd}, not ${params.cwd}`);
-      const { live, messages, configuration } = await open(cwd, () => {
-        if (sessions.get(params.sessionId)?.running || sessions.get(params.sessionId)?.configuring) throw acp.RequestError.invalidRequest(undefined, "session is running");
-        return SessionLog.open(options.home, params.sessionId);
-      });
-      live.configuring = true;
+      opening.add(params.sessionId);
+      if (previous) previous.configuring = true;
       try {
-        for (const update of historyUpdates(cwd, messages)) {
-          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
+        const { live, messages, configuration } = await open(cwd, () => SessionLog.open(options.home, params.sessionId), params.mcpServers, signal);
+        live.configuring = true;
+        try {
+          await previous?.mcp.close();
+          for (const update of historyUpdates(cwd, messages)) {
+            await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
+          }
+          const usage = latestUsageUpdate(messages, live.selection.model);
+          if (usage) await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: usage });
+          return configuration;
+        } finally {
+          live.configuring = false;
         }
-        const usage = latestUsageUpdate(messages, live.selection.model);
-        if (usage) await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: usage });
-        return configuration;
       } finally {
-        live.configuring = false;
+        opening.delete(params.sessionId);
+        if (previous) previous.configuring = false;
       }
     })
     .onRequest(acp.methods.agent.session.setConfigOption, async ({ params, client }) => {
@@ -301,6 +321,7 @@ export function serveAcp(options: AcpOptions): { closed: Promise<void>; stop: ()
   const connection = createAcpApp(options, sessions).connect(acp.ndJsonStream(output, input));
   const closed = connection.closed.then(async () => {
     await Promise.all([...sessions.values()].map((live) => live.agent.waitForIdle()));
+    await Promise.all([...sessions.values()].map((live) => live.mcp.close()));
   });
   return {
     closed,

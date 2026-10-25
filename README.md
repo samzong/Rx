@@ -84,6 +84,9 @@ logs under `$RX_HOME/sessions/` (`RX_HOME` defaults to `~/.rx`). To use it from
 an editor that speaks ACP, configure the editor to run `rx rx-agent acp`. See
 [agent/DESIGN.md](agent/DESIGN.md) for its contract.
 
+Add MCP servers in `$RX_HOME/mcp.json` or supply them through ACP new/load.
+rx-agent supports stdio and Streamable HTTP. See [MCP tools](agent/docs/mcp.md).
+
 rx-agent keeps its own credentials, separate from `rx providers`.
 `rx-agent login` without a provider lists the providers that support login.
 ChatGPT subscriptions (`openai` or `openai-codex`) sign in through the browser

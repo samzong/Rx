@@ -24,6 +24,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | `src/instructions.ts` | Finds the project boundary and loads instructions with local file references. |
 | `src/skills.ts` | Finds skill files and uses pi-coding-agent to load metadata and format the catalog. |
 | `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
+| `src/mcp.ts` | User and ACP MCP configuration, connections, and tool adaptation. |
 | `src/session-log.ts` | Append-only JSONL session log, resume repair, and session listing. |
 | `src/models.ts` | Model and thinking-level resolution through pi-ai `Models`. |
 | `src/rx-provider.ts` | Validates the `RX_AGENT_PROVIDER` handoff and registers its provider and models. |
@@ -54,15 +55,17 @@ side of the provider handoff is RX-AGENT-001..003 in
 | RX-ACP-001 | ACP v1 uses SDK 2.0.2 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. Load uses current launch defaults, then the client can reapply its saved choices. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
 | RX-ACP-002 | Each model exposes only its pi-ai thinking levels. Switching models clamps thinking to the new model and resets Fast. Boolean controls require the client capability. Lody receives per-model levels and Fast support through its versioned metadata because standard configuration options describe only the current model. |
 | RX-ACP-003 | Fast is available only for the native openai-codex subscription endpoint and exact models supported by the Codex 0.163.0 catalog and current Speed documentation. Rx retains streamSimple and injects service_tier: priority through onPayload. Other providers and endpoints receive no Fast injection. |
-| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement. Image input requires the current model's image capability. Rx does not connect MCP servers and reports this limitation on stderr when servers are supplied. HTTP and SSE MCP capabilities are false. |
+| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement. Image input requires the current model's image capability. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
+| RX-MCP-001 | User MCP configuration and ACP new/load servers supply session tools through pi-mcp. ACP entries replace same-name user entries without persistence. Connections open before log creation or repair. Load and connection shutdown close replaced or finished connections. Only stdio and Streamable HTTP are supported. See [MCP tools](docs/mcp.md). |
 
 ## Ownership
 
 | Surface | Owner | Rule |
 | --- | --- | --- |
 | `$RX_HOME/config.json` | user | Rx reads `model` and `thinking`; it never writes the file. |
+| `$RX_HOME/mcp.json` | user | Read-only MCP server definitions under RX-MCP-001. |
 | `$RX_HOME/AGENTS.md` and referenced files | user | Rx reads global instructions. Users can create a symlink to their shared instructions. Rx never creates that link. |
 | `$RX_HOME/sessions/<id>.jsonl` | Rx | Created and appended by Rx only. |
 | `$RX_HOME/sessions/<id>.lock` | Rx | Written while a process holds the session; removed when that process exits. |
@@ -96,9 +99,9 @@ The strongest alternative is the low-level `stream` API with `serviceTier`.
 Rx retains `streamSimple` for thinking-level conversion and `onPayload` forwarding in pi-ai 1.4.0.
 If the dependency changes, run a payload probe to test that forwarding.
 
-Lody sends its built-in stdio MCP server even without HTTP MCP support.
-The stable protocol has no flag to disable stdio MCP. Rx adds no MCP client or approval policy.
-Ordinary chat retains four tools, excluding Lody's server tools.
+Lody sends workspace MCP servers through ACP new and load.
+Rx connects those servers and reports HTTP support, with legacy SSE unsupported.
+MCP tools use the same execution, cancellation, logging, and ACP result path as local tools.
 Global image support means at least one available model accepts images.
 Each prompt rejects unsupported images before logging or provider access.
 

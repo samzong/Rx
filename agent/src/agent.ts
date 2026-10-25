@@ -1,4 +1,4 @@
-import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Api, type AssistantMessage, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type Models } from "@earendil-works/pi-ai";
 import { fastStreamOptions } from "./acp-fast.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
@@ -39,6 +39,7 @@ export interface RxAgentOptions {
   origin: Origin;
   messages?: AgentMessage[];
   fast?: () => boolean;
+  tools?: AgentTool[];
 }
 
 const ROLE_ORIGIN: Record<string, Origin | undefined> = { assistant: "model", toolResult: "tool", system: "rx" };
@@ -73,7 +74,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
       systemPrompt: options.systemPrompt,
       model: options.model,
       thinkingLevel: options.thinking,
-      tools: codingTools(options.cwd),
+      tools: [...codingTools(options.cwd), ...options.tools ?? []],
       messages: options.messages ?? [],
     },
   });
