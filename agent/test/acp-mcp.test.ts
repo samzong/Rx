@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk";
@@ -68,20 +68,33 @@ test("ACP new and load expose user and client MCP tools through normal model exe
   });
 });
 
-test("ACP MCP startup failure preserves new and loaded logs", async () => {
-  const { models, model } = fauxModels();
+test("ACP new and load report skipped servers once before the first model response", async () => {
+  const { faux, models, model } = fauxModels();
   const cwd = tempDir();
   const home = tempDir();
-  const { id, path, lock } = foreignSession(cwd, [], home);
-  const before = readFileSync(path);
+  const { id, path } = foreignSession(cwd, [], home);
+  const updates: acp.SessionUpdate[] = [];
+  const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
-  const bad = [{ name: "bad", command: "/missing-rx-mcp", args: [], env: [] }];
-  await acp.client().connectWith(app, async (ctx) => {
-    await assert.rejects(ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: bad }), /MCP server bad/);
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { cwd, sessionId: id, mcpServers: bad }), /MCP server bad/);
+  const bad: acp.McpServer = { name: "bad", command: "/missing-rx-mcp", args: [], env: [] };
+  const reply = () => fauxAssistantMessage("MODEL_RESPONSE");
+  faux.setResponses([reply(), reply(), reply()]);
+  await client.connectWith(app, async (ctx) => {
+    const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [bad, server("healthy")] });
+    const prompt = async (sid: string) => ctx.request(acp.methods.agent.session.prompt, { sessionId: sid, prompt: [{ type: "text", text: "reply" }] });
+    assert.equal(updates.some((update) => update.sessionUpdate === "agent_message_chunk"), false);
+    await prompt(sessionId);
+    const text = () => updates.flatMap((update) => update.sessionUpdate === "agent_message_chunk" && update.content.type === "text" ? [update.content.text] : []).join("");
+    assert.ok(text().indexOf("MCP server bad not connected") < text().indexOf("MODEL_RESPONSE"));
+    await prompt(sessionId);
+    assert.equal(text().split("MCP server bad not connected").length - 1, 1);
+    updates.length = 0;
+    await ctx.request(acp.methods.agent.session.load, { cwd, sessionId: id, mcpServers: [bad, server("healthy")] });
+    await prompt(id);
+    assert.ok(text().indexOf("MCP server bad not connected") < text().indexOf("MODEL_RESPONSE"));
+    assert.equal(text().split("MCP server bad not connected").length - 1, 1);
   });
-  assert.deepEqual(readFileSync(path), before);
-  assert.equal(existsSync(lock), false);
+  assert.equal(readFileSync(path, "utf8").includes("not connected"), false);
 });
 
 test("ACP cancellation reaches a slow MCP server and ends the turn as cancelled", async () => {

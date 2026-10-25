@@ -140,6 +140,11 @@ Versioned checkpoints stay in the agent's append-only v1 session log.
 Older Rx readers ignore checkpoints and replay the complete history, which can overflow again.
 This downgrade preserves the original records but does not preserve compaction behavior.
 
+MCP startup belongs to rx-agent under RX-MCP-001. It connects servers in parallel,
+skips failed servers, and reports sanitized warnings in CLI and ACP sessions.
+The launcher preserves the same environment-only handoff under RX-AGENT-002/003.
+It never reads or repairs the user-owned MCP configuration.
+
 ## Adding a harness
 
 Adding a harness requires an owner decision covering CLI name, alias, install,
