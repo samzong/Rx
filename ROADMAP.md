@@ -65,7 +65,8 @@ Each rx-agent failure is fixed and then becomes an eval task. Candidates,
 ordered by what daily use and evals show:
 
 - Sandbox for tool execution (replaces RX-PERM-001).
-- Context compaction and memory.
+- Context compaction: initial automatic and manual summaries with persistent checkpoints. Quality calibration and installed-Lody acceptance remain separate gates.
+- Cross-session memory.
 - MCP tools.
 - Idempotency keys for external actions such as `git push`.
 - Replacing the pi-agent-core loop, only when evals show the loop is the limit.

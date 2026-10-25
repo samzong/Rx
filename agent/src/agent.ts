@@ -1,6 +1,7 @@
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Api, type AssistantMessage, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type Models } from "@earendil-works/pi-ai";
 import { fastStreamOptions } from "./acp-fast.ts";
+import { installContextControl } from "./context.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
 import { skillCatalog } from "./skills.ts";
@@ -85,5 +86,6 @@ export function createRxAgent(options: RxAgentOptions): Agent {
     }
     options.log.append(ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
   });
+  installContextControl(agent, options.models, options.log);
   return agent;
 }
