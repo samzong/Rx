@@ -41,7 +41,7 @@ Two lines that can run in parallel. Line A merges first; line B rebases onto it.
 - [x] Resume that closes interrupted tool calls without re-running them.
 - [x] CLI: REPL, `-p`, `models`, `sessions`, `--resume`, `--continue`.
 - [x] ACP server with load, list, cancel, and streaming tool updates.
-- [x] Launch through `rx agent` and `rxa` with Rx's provider configuration,
+- [x] Launch through `rx rx-agent` and `rxa` with Rx's provider configuration,
   credentials, and catalogs; single-file binary through `bun build --compile`.
 - [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
   independent of rx providers.

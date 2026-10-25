@@ -36,7 +36,7 @@ under the rules in [rx-agent](#rx-agent).
 | RX-OWN-001 | Mutate only explicitly Rx-owned identities, preserve unowned data, follow each surface's owned-edit rule, lock, write atomically, and fail closed on malformed input. |
 | RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
 | RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
-| RX-AGENT-001 | `make install` installs the single-file `rx-agent` binary, compiled by `bun build --compile` from `agent/`, beside `rx`. Rx resolves it from `PATH`, then beside the running `rx`, and never downloads or installs it; when it is missing, Rx fails and names `make install`. |
+| RX-AGENT-001 | The canonical harness name is `rx-agent`. `rx rx-agent`, the legacy alias `rx agent`, and `rxa` launch the same binary. `make install` installs the single-file `rx-agent` binary, compiled by `bun build --compile` from `agent/`, beside `rx`. Rx resolves it from `PATH`, then beside the running `rx`, and never downloads or installs it; when it is missing, Rx fails and names `make install`. |
 | RX-AGENT-002 | A provider launch hands rx-agent only the child environment: the provider key under the provider's `env` name, `RX_AGENT_PROVIDER` (provider id, name, API, base URL, key variable name, the catalog models, and `defaultModel`; a model with a bundled `anthropic-messages` capability entry also carries `api: anthropic-messages` and the provider's Messages base URL), and `RX_MODEL` as `provider/model` only when `rx.toml` sets the provider-level `model`. `defaultModel` is that `model`, else the provider's default model, else the first listed model. Catalog failure hands off only the `--model` and default models, and fails when neither exists. Argv is never rewritten. |
 | RX-AGENT-003 | Handed-off model capabilities follow RX-CATALOG-001: reasoning levels come only from the bundled snapshot for the protocol the model is handed off on, unlisted levels are sent as unsupported, and models without snapshot capabilities are sent with `reasoning: false`. A missing context length uses the provider's fallback context. |
 | RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
@@ -106,12 +106,23 @@ native `rx` / `rxc` launch, permission flags included. Route checks stop at
 
 ## rx-agent
 
-`rx agent` and `rxa` launch rx-agent; it is the first picker entry with
-shortcut `a`. Codex keeps `rxx` and shortcut `x`. With `--provider none`,
+`rx rx-agent` and `rxa` launch rx-agent. The legacy command `rx agent` remains
+an alias. The first picker entry displays `rx-agent` with shortcut `a`.
+Shell completions offer both command names and keep prefix completion for `ag`.
+Codex keeps `rxx` and shortcut `x`. With `--provider none`,
 rx-agent runs as-is under RX-ROUTE-001 and resolves models through its own
 pi-ai configuration and the credentials it stores with `rx-agent login`. Rx applies no permission flags; rx-agent's tool policy
 is RX-PERM-001 in its own contract. Hosted mode does not launch rx-agent and
 the hosted picker omits it.
+
+The harness parser accepts both names and returns one harness identity.
+A separate picker label is the simpler alternative, but it leaves commands,
+completion, and launch diagnostics with different canonical names.
+Rx stores no harness selection in `rx.toml`, `$RX_HOME/config.json`, or session
+logs. Existing commands stored by callers remain readable through the alias.
+The rename requires no data migration. ACP keeps its existing `rx` identity
+and `Rx` title. CLI harness selection does not control ACP identity or the
+client's saved Agent configuration name.
 
 rx-agent validates `RX_AGENT_PROVIDER` and fails closed on malformed input. When
 the handed-off provider id and endpoint match a pi-ai built-in provider with the
