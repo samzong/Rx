@@ -5,6 +5,7 @@ import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
 import { skillCatalog } from "./skills.ts";
 import { codingTools } from "./tools.ts";
+import { transportDiagnostics } from "./transport-errors.ts";
 
 export function systemPrompt(cwd: string, now: Date = new Date()): string {
   const sections = [
@@ -61,9 +62,12 @@ function abortedStream(model: Model<Api>): AssistantMessageEventStream {
 }
 
 export function createRxAgent(options: RxAgentOptions): Agent {
+  const transport = transportDiagnostics();
   const agent = new Agent({
-    streamFn: (model, context, streamOptions) =>
-      streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, fastStreamOptions(model, streamOptions, options.fast?.() === true)),
+    streamFn: (model, context, streamOptions) => {
+      const requestOptions = transport.streamOptions(model.api, fastStreamOptions(model, streamOptions, options.fast?.() === true));
+      return streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, requestOptions);
+    },
     sessionId: options.log.id,
     initialState: {
       systemPrompt: options.systemPrompt,
@@ -74,7 +78,12 @@ export function createRxAgent(options: RxAgentOptions): Agent {
     },
   });
   agent.subscribe((event) => {
-    if (event.type === "message_end") options.log.append(ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
+    if (event.type !== "message_end") return;
+    if (event.message.role === "assistant") {
+      const failure = transport.takeFailure();
+      if (event.message.stopReason === "error" && failure) event.message.errorMessage = failure;
+    }
+    options.log.append(ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
   });
   return agent;
 }
