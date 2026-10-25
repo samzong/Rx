@@ -4,8 +4,10 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, utimes
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxText, fauxToolCall, type UserMessage } from "@earendil-works/pi-ai";
-import { INTERRUPTED_TOOL_TEXT, listSessions, SessionLog } from "../src/session-log.ts";
+import type { CompactionCheckpoint } from "../src/context-control.ts";
+import { checkpointMessages, INTERRUPTED_TOOL_TEXT, listSessions, SessionLog } from "../src/session-log.ts";
 import { foreignSession, tempDir } from "./helpers.ts";
 
 const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: Date.now() });
@@ -19,6 +21,9 @@ test("a session round-trips messages with their origin and private permissions",
   assert.equal(loaded.log.cwd, "/work");
   assert.deepEqual(loaded.entries.map((e) => e.origin), ["cli", "model"]);
   assert.equal(loaded.messages.length, 2);
+  assert.deepEqual(loaded.history, loaded.messages);
+  assert.deepEqual(loaded.usageMessages, loaded.messages);
+  assert.equal(loaded.log.messageCount, 2);
   assert.equal(loaded.repaired, 0);
   assert.equal(statSync(log.path).mode & 0o777, 0o600);
   assert.equal(statSync(`${home}/sessions`).mode & 0o777, 0o700);

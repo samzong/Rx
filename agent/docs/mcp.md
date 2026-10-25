@@ -5,6 +5,10 @@ The same tools work in CLI sessions and ACP sessions.
 Tools run with the user's permissions under RX-PERM-001.
 MCP adds no permission prompt or sandbox.
 
+## Contract
+
+RX-MCP-001: User MCP configuration and ACP new/load servers supply session tools through pi-mcp. ACP entries replace same-name user entries without persistence. Connections open before log creation or repair. Load and connection shutdown close replaced or finished connections. Only stdio and Streamable HTTP are supported. See [MCP tools](docs/mcp.md).
+
 ## User configuration
 
 Create `$RX_HOME/mcp.json`, where `RX_HOME` defaults to `~/.rx`:
@@ -72,7 +76,8 @@ Stdio shutdown closes stdin and then terminates the process group if needed.
 ## Results and failures
 
 Tools use names such as `mcp__filesystem__read_file`.
-Names with unsupported characters, more than 64 characters, or `__` inside a server or tool name receive a stable hash suffix.
+Unsupported characters or a generated name longer than 64 characters require a stable hash suffix.
+The suffix also applies to `__` inside either component, server names ending with `_`, and tool names starting with `_`.
 Tool results preserve text and images through pi's `toLlmContent` conversion.
 Structured results without content blocks become JSON text.
 Other content types become pi's text representation.

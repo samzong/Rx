@@ -13,6 +13,7 @@ import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { VERSION } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
+import { contextControl, type CompactionEvent } from "./context-control.ts";
 
 export interface AcpOptions {
   home: string;
@@ -31,6 +32,8 @@ interface LiveSession {
 }
 
 type Update = acp.SessionUpdate;
+
+const COMMANDS: acp.AvailableCommand[] = [{ name: "compact", description: "Compact the conversation context" }];
 
 const TOOL_KINDS: Record<string, acp.ToolKind> = { read: "read", write: "edit", edit: "edit", bash: "execute" };
 
@@ -140,8 +143,29 @@ function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReaso
   return "end_turn";
 }
 
+function compactionUpdate(event: CompactionEvent, supported: boolean, cancelled: boolean): Update {
+  if (supported) {
+    return {
+      sessionUpdate: "compaction_update",
+      compactionId: event.id,
+      status: event.status === "failed" && cancelled ? "cancelled" : event.status,
+      ...(event.status === "failed" && event.message ? { error: event.message } : {}),
+    };
+  }
+  return {
+    sessionUpdate: event.status === "in_progress" ? "tool_call" : "tool_call_update",
+    toolCallId: event.id,
+    title: event.status === "in_progress" ? "Compacting context" : event.status === "completed" ? "Context compacted" : "Context compaction failed",
+    kind: "other",
+    status: event.status,
+    ...(event.message ? { content: [{ type: "content", content: { type: "text", text: event.message } }] } : {}),
+    _meta: { lody: { activity: { version: 1, kind: "context_compaction" } } },
+  };
+}
+
 export function createAcpApp(options: AcpOptions, sessions = new Map<string, LiveSession>()): acp.AgentApp {
   let booleanSupported = false;
+  let compactionSupported = false;
   const opening = new Set<string>();
 
   const snapshot = async (selection: AcpSelection) => {
@@ -156,7 +180,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; messages: AgentMessage[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
     let choice: ModelChoice;
     let prompt: string;
     try {
@@ -176,11 +200,11 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     });
     try {
       signal.throwIfAborted();
-      const { log, messages } = start();
+      const { log, messages, history = messages, usageMessages = messages } = start();
       const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools });
       const live: LiveSession = { agent, log, selection, mcp, running: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
-      return { live, messages, configuration };
+      return { live, history, usageMessages, configuration };
     } catch (error) {
       await mcp.close();
       throw error;
@@ -199,12 +223,15 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       connection.signal.addEventListener("abort", () => {
         for (const live of sessions.values()) {
           live.agent.abort();
-          void live.agent.waitForIdle().then(() => live.mcp.close());
+          const control = contextControl(live.agent);
+          control.abort();
+          void Promise.allSettled([live.agent.waitForIdle(), control.waitForIdle()]).then(() => live.mcp.close());
         }
       }, { once: true });
     })
     .onRequest(acp.methods.agent.initialize, async ({ params }) => {
       booleanSupported = params.clientCapabilities?.session?.configOptions?.boolean != null;
+      compactionSupported = params.clientCapabilities?.session?.compaction != null;
       const available = await options.models.getAvailable();
       return {
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -218,8 +245,9 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         agentInfo: { name: "rx", title: "Rx", version: VERSION },
       };
     })
-    .onRequest(acp.methods.agent.session.new, async ({ params, signal }) => {
+    .onRequest(acp.methods.agent.session.new, async ({ params, client, signal }) => {
       const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, true);
+      await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS } });
       return { sessionId: live.log.id, ...configuration };
     })
     .onRequest(acp.methods.agent.session.load, async ({ params, client, signal }) => {
@@ -230,15 +258,16 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       opening.add(params.sessionId);
       if (previous) previous.configuring = true;
       try {
-        const { live, messages, configuration } = await open(cwd, () => SessionLog.open(options.home, params.sessionId), params.mcpServers, signal);
+        const { live, history, usageMessages, configuration } = await open(cwd, () => SessionLog.open(options.home, params.sessionId), params.mcpServers, signal);
         live.configuring = true;
         try {
           await previous?.mcp.close();
-          for (const update of historyUpdates(cwd, messages)) {
+          for (const update of historyUpdates(cwd, history)) {
             await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
           }
-          const usage = latestUsageUpdate(messages, live.selection.model);
+          const usage = latestUsageUpdate(usageMessages, live.selection.model);
           if (usage) await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: usage });
+          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS } });
           return configuration;
         } finally {
           live.configuring = false;
@@ -278,39 +307,62 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       if (live.running || live.configuring) throw acp.RequestError.invalidRequest(undefined, "session is already running a prompt or changing configuration");
       const { text, images } = promptInput(params.prompt);
       if (images.length && !live.selection.model.input.includes("image")) throw acp.RequestError.invalidParams(undefined, `model ${formatModel(live.selection.model)} does not support image input`);
+      const control = contextControl(live.agent);
+      const manual = params.prompt.every((block) => block.type === "text") && text.trim() === "/compact";
       let pending = Promise.resolve();
+      const abort = () => {
+        live.agent.abort();
+        control.abort();
+      };
+      const notify = (update: Update) => {
+        pending = pending
+          .then(() => client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update }))
+          .catch(abort);
+      };
       const unsubscribe = live.agent.subscribe((event) => {
         const updates = eventUpdates(live.log.cwd, event);
         if (event.type === "message_end" && event.message.role === "assistant") {
           const usage = usageUpdate(event.message, live.selection.model);
           if (usage) updates.push(usage);
         }
-        for (const update of updates) {
-          pending = pending
-            .then(() => client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update }))
-            .catch(() => live.agent.abort());
-        }
+        for (const update of updates) notify(update);
         return pending;
       });
-      const onClose = () => live.agent.abort();
-      signal.addEventListener("abort", onClose, { once: true });
+      const unsubscribeCompaction = control.subscribe((event) => notify(compactionUpdate(event, compactionSupported, live.cancelled)));
+      const onClose = () => {
+        live.cancelled = true;
+        abort();
+      };
       live.running = true;
       live.cancelled = false;
+      signal.addEventListener("abort", onClose, { once: true });
+      if (signal.aborted) onClose();
       try {
-        await live.agent.prompt(text, images);
+        if (!live.cancelled) {
+          if (manual) await control.compact();
+          else await live.agent.prompt(text, images);
+        }
+      } catch (error) {
+        if (!live.cancelled) throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
       } finally {
-        live.running = false;
-        signal.removeEventListener("abort", onClose);
-        unsubscribe();
-        await pending;
+        try {
+          await Promise.all([live.agent.waitForIdle(), control.waitForIdle()]);
+          unsubscribe();
+          unsubscribeCompaction();
+          await pending;
+        } finally {
+          signal.removeEventListener("abort", onClose);
+          live.running = false;
+        }
       }
-      return { stopReason: stopReason(live.agent.state.messages, live.cancelled) };
+      return { stopReason: manual ? (live.cancelled ? "cancelled" : "end_turn") : stopReason(live.agent.state.messages, live.cancelled) };
     })
     .onNotification(acp.methods.agent.session.cancel, ({ params }) => {
       const live = sessions.get(params.sessionId);
       if (!live?.running) return;
       live.cancelled = true;
       live.agent.abort();
+      contextControl(live.agent).abort();
     });
 }
 
@@ -320,8 +372,13 @@ export function serveAcp(options: AcpOptions): { closed: Promise<void>; stop: ()
   const sessions = new Map<string, LiveSession>();
   const connection = createAcpApp(options, sessions).connect(acp.ndJsonStream(output, input));
   const closed = connection.closed.then(async () => {
-    await Promise.all([...sessions.values()].map((live) => live.agent.waitForIdle()));
-    await Promise.all([...sessions.values()].map((live) => live.mcp.close()));
+    await Promise.all([...sessions.values()].map(async (live) => {
+      const control = contextControl(live.agent);
+      live.agent.abort();
+      control.abort();
+      await Promise.allSettled([live.agent.waitForIdle(), control.waitForIdle()]);
+      await live.mcp.close();
+    }));
   });
   return {
     closed,

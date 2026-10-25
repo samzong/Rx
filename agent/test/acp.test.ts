@@ -65,7 +65,7 @@ test("a prompt streams thought, text, and tool updates, then replays them on loa
   await client.connectWith(app, (ctx) => ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
   assert.deepEqual(
     replayed.map((u) => u.sessionUpdate),
-    ["user_message_chunk", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "agent_message_chunk"],
+    ["user_message_chunk", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "agent_message_chunk", "available_commands_update"],
   );
   const call = replayed[3]!;
   assert.ok(call.sessionUpdate === "tool_call");
@@ -278,7 +278,7 @@ test("load replays a session after its cwd is deleted while new rejects the miss
 test("session configuration changes the next model call and load returns a fresh complete snapshot", async () => {
   const faux = fauxProvider({ models: [
     { id: "reasoner", name: "Reasoner", reasoning: true, contextWindow: 10000, input: ["text", "image"] },
-    { id: "plain", name: "Plain", reasoning: false, contextWindow: 2000, input: ["text"] },
+    { id: "plain", name: "Plain", reasoning: false, contextWindow: 8192, input: ["text"] },
   ] });
   const models = createModels();
   models.setProvider(faux.provider);
@@ -312,7 +312,7 @@ test("session configuration changes the next model call and load returns a fresh
     const logged = readFileSync(join(home, "sessions", `${sessionId}.jsonl`), "utf8").trim().split("\n").map((line) => JSON.parse(line)).findLast((entry) => entry.message?.role === "assistant").message;
     const used = logged.usage.input + logged.usage.output + logged.usage.cacheRead + logged.usage.cacheWrite;
     assert.ok(used > 0);
-    assert.deepEqual(updates.filter((update) => update.sessionUpdate === "usage_update").at(-1), { sessionUpdate: "usage_update", used, size: 2000 });
+    assert.deepEqual(updates.filter((update) => update.sessionUpdate === "usage_update").at(-1), { sessionUpdate: "usage_update", used, size: 8192 });
     assert.ok(updates.some((update) => update.sessionUpdate === "config_option_update"));
     const loaded = await ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
     assert.equal(loaded.configOptions?.find((option) => option.id === "model")?.currentValue, `${model.provider}/reasoner`);

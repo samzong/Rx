@@ -131,6 +131,15 @@ carries per-endpoint compatibility settings the snapshot does not. Built-in
 models absent from the handoff are dropped. Other models get pi-ai custom-model
 defaults: text input, zero cost, and 16384 max output tokens.
 
+Context compaction belongs to rx-agent under RX-COMPACT-001..005 in its own contract.
+The launcher keeps the existing request, binary discovery, plan, configuration, and exec path.
+RX-AGENT-002/003 continue to supply endpoint-scoped model metadata and context windows.
+An API name does not establish native provider compaction support.
+Summary requests use the selected agent model and endpoint without a second credential route.
+Versioned checkpoints stay in the agent's append-only v1 session log.
+Older Rx readers ignore checkpoints and replay the complete history, which can overflow again.
+This downgrade preserves the original records but does not preserve compaction behavior.
+
 ## Adding a harness
 
 Adding a harness requires an owner decision covering CLI name, alias, install,
