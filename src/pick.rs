@@ -57,6 +57,7 @@ struct App {
     providers: Vec<LaunchChoice>,
     provider_cursor: usize,
     provider: Option<String>,
+    recommend_agent: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,8 +68,21 @@ enum PickerAction {
 }
 
 impl App {
-    fn new(choices: Vec<Choice>, providers: Vec<LaunchChoice>, provider: Option<String>) -> Self {
-        Self { choices, selected: 0, step: Step::Harness, providers, provider_cursor: 0, provider }
+    fn new(
+        choices: Vec<Choice>,
+        providers: Vec<LaunchChoice>,
+        provider: Option<String>,
+        recommend_agent: bool,
+    ) -> Self {
+        Self {
+            choices,
+            selected: 0,
+            step: Step::Harness,
+            providers,
+            provider_cursor: 0,
+            provider,
+            recommend_agent,
+        }
     }
 
     fn provider_label(&self) -> Option<String> {
@@ -168,7 +182,8 @@ impl App {
 }
 
 pub(crate) fn harness(env: &EnvLookup) -> Result<Option<Harness>> {
-    Ok(pick(interactive(), env, hosted_choices(), Vec::new(), None)?.map(|(harness, _)| harness))
+    Ok(pick(interactive(), env, App::new(hosted_choices(), Vec::new(), None, false))?
+        .map(|(harness, _)| harness))
 }
 
 pub(crate) fn harness_with_provider(
@@ -179,25 +194,20 @@ pub(crate) fn harness_with_provider(
     let interactive = interactive();
     let providers =
         if interactive { crate::providers::launch_choices(paths, env)? } else { Vec::new() };
-    pick(interactive, env, CHOICES.to_vec(), providers, provider)
+    let recommend_agent = interactive && crate::agent_dist::recommend(paths, env);
+    pick(interactive, env, App::new(CHOICES.to_vec(), providers, provider, recommend_agent))
 }
 
 fn interactive() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
-fn pick(
-    interactive: bool,
-    env: &EnvLookup,
-    choices: Vec<Choice>,
-    providers: Vec<LaunchChoice>,
-    provider: Option<String>,
-) -> Result<Option<(Harness, Option<String>)>> {
+fn pick(interactive: bool, env: &EnvLookup, app: App) -> Result<Option<(Harness, Option<String>)>> {
     if !interactive {
         bail!("missing harness name\n\n{}", crate::help_text().trim_end());
     }
     let mut terminal = match ratatui::try_init_with_options(TerminalOptions {
-        viewport: Viewport::Inline(viewport_height(providers.len())),
+        viewport: Viewport::Inline(viewport_height(app.providers.len())),
     }) {
         Ok(terminal) => terminal,
         Err(error) => {
@@ -205,7 +215,7 @@ fn pick(
             return Err(error).context("failed to initialize harness picker");
         }
     };
-    let result = run(&mut terminal, env, choices, providers, provider);
+    let result = run(&mut terminal, env, app);
     let cleanup = collapse_inline(&mut terminal);
     match result {
         Ok(picked) => {
@@ -242,12 +252,10 @@ fn collapse_inline(terminal: &mut DefaultTerminal) -> io::Result<()> {
 fn run(
     terminal: &mut DefaultTerminal,
     env: &EnvLookup,
-    choices: Vec<Choice>,
-    providers: Vec<LaunchChoice>,
-    provider: Option<String>,
+    app: App,
 ) -> Result<Option<(Harness, Option<String>)>> {
     let palette = Palette::current(env);
-    let mut app = App::new(choices, providers, provider);
+    let mut app = app;
     loop {
         terminal.draw(|frame| render(frame, &app, &palette))?;
         if !event::poll(Duration::from_millis(200))? {
@@ -281,7 +289,7 @@ fn harness_lines(app: &App, palette: &Palette) -> Vec<Line<'static>> {
     for (index, choice) in app.choices.iter().enumerate() {
         let selected = index == app.selected;
         let marker = if selected { "→ " } else { "  " };
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(marker, palette.accent),
             Span::styled("[", palette.muted),
             Span::styled(choice.shortcut.to_string(), (palette.accent, Modifier::BOLD)),
@@ -291,7 +299,11 @@ fn harness_lines(app: &App, palette: &Palette) -> Vec<Line<'static>> {
                 Style::default().fg(if selected { palette.accent } else { palette.primary }),
             ),
             Span::styled(format!("rx{}", choice.shortcut), palette.muted),
-        ]));
+        ];
+        if app.recommend_agent && choice.harness == Harness::Agent {
+            spans.push(Span::styled("  recommended", palette.muted));
+        }
+        lines.push(Line::from(spans));
     }
     if let Some(label) = app.provider_label() {
         lines.push(Line::from(vec![
@@ -356,7 +368,7 @@ mod tests {
     }
 
     fn app() -> App {
-        App::new(CHOICES.to_vec(), Vec::new(), None)
+        App::new(CHOICES.to_vec(), Vec::new(), None, false)
     }
 
     fn press(code: KeyCode) -> KeyEvent {
@@ -365,9 +377,7 @@ mod tests {
 
     #[test]
     fn harness_picker_requires_tty() {
-        let error =
-            pick(false, &EnvLookup::isolated(HashMap::new()), CHOICES.to_vec(), Vec::new(), None)
-                .unwrap_err();
+        let error = pick(false, &EnvLookup::isolated(HashMap::new()), app()).unwrap_err();
         assert!(error.to_string().contains("missing harness name"));
     }
 
@@ -394,11 +404,43 @@ mod tests {
 
     #[test]
     fn the_hosted_picker_omits_the_agent() {
-        let mut app = App::new(hosted_choices(), Vec::new(), None);
+        let mut app = App::new(hosted_choices(), Vec::new(), None, false);
         assert!(app.choices.iter().all(|choice| choice.harness != Harness::Agent));
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Claude));
         let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         assert_eq!(app.handle_key(key), PickerAction::Continue);
+        assert!(!app.recommend_agent);
+        let palette = Palette::current(&EnvLookup::isolated(HashMap::new()));
+        assert!(
+            harness_lines(&app, &palette)
+                .iter()
+                .all(|line| !line.to_string().contains("recommended"))
+        );
+    }
+
+    #[test]
+    fn recommendation_only_marks_the_agent_and_preserves_selection() {
+        let palette = Palette::current(&EnvLookup::isolated(HashMap::new()));
+        let mut app = App::new(CHOICES.to_vec(), Vec::new(), None, true);
+        let lines = harness_lines(&app, &palette);
+        assert_eq!(lines.iter().filter(|line| line.to_string().contains("recommended")).count(), 1);
+        let agent = lines.iter().find(|line| line.to_string().contains("rx-agent")).unwrap();
+        let hint = agent.spans.last().unwrap();
+        assert_eq!(hint.content, "  recommended");
+        assert_eq!(hint.style, Style::default().fg(palette.muted));
+        assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
+        app.handle_key(press(KeyCode::Down));
+        assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Claude));
+    }
+
+    #[test]
+    fn hiding_recommendation_keeps_the_agent_selectable() {
+        let palette = Palette::current(&EnvLookup::isolated(HashMap::new()));
+        let mut app = app();
+        let lines = harness_lines(&app, &palette);
+        assert!(lines.iter().all(|line| !line.to_string().contains("recommended")));
+        assert!(lines.iter().any(|line| line.to_string().contains("rx-agent")));
+        assert_eq!(app.handle_key(press(KeyCode::Char('a'))), PickerAction::Launch(Harness::Agent));
     }
 
     #[test]
@@ -424,6 +466,7 @@ mod tests {
             CHOICES.to_vec(),
             vec![choice("openrouter", true), choice("deepseek", false)],
             None,
+            false,
         );
         assert_eq!(app.provider_label().as_deref(), Some("openrouter (default)"));
         app.handle_key(press(KeyCode::Tab));
@@ -437,7 +480,7 @@ mod tests {
 
     #[test]
     fn provider_step_escape_keeps_the_previous_selection() {
-        let mut app = App::new(CHOICES.to_vec(), vec![choice("openrouter", true)], None);
+        let mut app = App::new(CHOICES.to_vec(), vec![choice("openrouter", true)], None, false);
         app.handle_key(press(KeyCode::Tab));
         assert_eq!(app.handle_key(press(KeyCode::Esc)), PickerAction::Continue);
         assert_eq!(app.provider, None);
@@ -465,7 +508,7 @@ mod tests {
     #[test]
     fn the_provider_list_pages_only_when_it_cannot_fit() {
         let providers = (0..6).map(|index| choice(&format!("p{index}"), index == 0)).collect();
-        let app = App::new(CHOICES.to_vec(), providers, None);
+        let app = App::new(CHOICES.to_vec(), providers, None, false);
 
         let full = rendered(&app, 9);
         assert_eq!(full.len(), 8);
@@ -479,8 +522,12 @@ mod tests {
 
     #[test]
     fn a_requested_provider_seeds_the_picker() {
-        let app =
-            App::new(CHOICES.to_vec(), vec![choice("deepseek", false)], Some("none".to_string()));
+        let app = App::new(
+            CHOICES.to_vec(),
+            vec![choice("deepseek", false)],
+            Some("none".to_string()),
+            false,
+        );
         assert_eq!(app.provider_label().as_deref(), Some("none"));
     }
 }

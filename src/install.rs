@@ -62,7 +62,10 @@ pub(crate) fn ensure(harness: Harness, env: &EnvLookup) -> Result<PathBuf> {
 }
 
 fn ensure_agent() -> Result<PathBuf> {
-    let program = crate::agent::PROGRAM;
+    native_agent_path().context(crate::agent_dist::MISSING)
+}
+
+pub(crate) fn native_agent_path() -> Option<PathBuf> {
     let beside_rx = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
@@ -70,11 +73,7 @@ fn ensure_agent() -> Result<PathBuf> {
         .collect::<Vec<_>>();
     let path = std::env::var_os("PATH").unwrap_or_default();
     let extensions = executable_extensions();
-    lookup_with(program, &path, &beside_rx, extensions.as_deref()).ok_or_else(|| {
-        anyhow::anyhow!(
-            "{program} is not installed. Install it with `make install` from a clone of https://github.com/samzong/Rx, then retry."
-        )
-    })
+    lookup_with(crate::agent::PROGRAM, &path, &beside_rx, extensions.as_deref())
 }
 
 pub(crate) fn lookup(program: &str) -> Option<PathBuf> {

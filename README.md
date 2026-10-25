@@ -54,6 +54,13 @@ catalog marker and lease files in place, including when rolling back Rx.
 
 ### rx-agent
 
+If rx-agent is not on PATH or beside Rx, `rxa` in a terminal offers to install it
+from this repository's `rx-agent-v*` releases after a SHA-256 check (`[y/N]`, Enter declines).
+Rx checks for a new managed version in the background at most once per 24 hours.
+The new version takes effect at the next launch. Rx keeps the current and previous versions.
+`RX_NO_INSTALL=1` disables the prompt and `RX_NO_UPDATE=1` disables update checks.
+See [distribution](agent/docs/distribution.md).
+
 `rx rx-agent` and `rxa` start rx-agent with the selected provider, its cached
 models, and its key in the child environment. The model is the first of
 `--model <provider>/<id>`, the provider-level `model` in `rx.toml`, `model` in

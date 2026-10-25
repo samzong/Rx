@@ -1,0 +1,153 @@
+name: Agent release
+
+on:
+  push:
+    tags: ["rx-agent-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Agent release tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_REF: refs/tags/${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Validate agent release tag
+        id: release
+        shell: bash
+        run: |
+          set -eu
+          version="$(node -p 'require("./agent/package.json").version')"
+          if [ "$RELEASE_TAG" != "rx-agent-v$version" ]; then
+            echo "::error::release tag $RELEASE_TAG does not match agent/package.json version $version"
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]; then
+            echo "::error::checked out commit does not match release tag $RELEASE_TAG"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: agent/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: agent/pnpm-lock.yaml
+      - run: make agent-check
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-darwin-x64
+            os: macos-15-intel
+            artifact: rx-agent-darwin-x64
+          - target: bun-darwin-arm64
+            os: macos-latest
+            artifact: rx-agent-darwin-arm64
+          - target: bun-linux-x64-baseline
+            os: ubuntu-latest
+            artifact: rx-agent-linux-x64
+          - target: bun-windows-x64-baseline
+            os: windows-latest
+            artifact: rx-agent-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: agent/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: pnpm --dir agent install --frozen-lockfile
+      - name: Compile agent
+        shell: bash
+        env:
+          BUN_TARGET: ${{ matrix.target }}
+          BINARY: ${{ runner.os == 'Windows' && 'rx-agent.exe' || 'rx-agent' }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-bin
+          cd agent
+          bun build --compile --target "$BUN_TARGET" src/cli.ts --outfile "../release-bin/$BINARY"
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: tar -czf "$ARTIFACT.tar.gz" -C release-bin rx-agent
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: Compress-Archive -Path release-bin/rx-agent.exe -DestinationPath "$env:ARTIFACT.zip"
+      - name: Record built commit
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: git rev-parse HEAD > "$ARTIFACT.sha"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.*
+          if-no-files-found: error
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: rx-agent-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish agent release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          set -eu
+          cd release-assets
+          for built in rx-agent-*.sha; do
+            if [ "$(tr -d '[:space:]' < "$built")" != "$VALIDATED_SHA" ]; then
+              echo "::error::$built was not built from validated commit $VALIDATED_SHA"
+              exit 1
+            fi
+          done
+          sha256sum rx-agent-*.tar.gz rx-agent-*.zip > SHA256SUMS
+          gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes --verify-tag --latest=false rx-agent-*.tar.gz rx-agent-*.zip SHA256SUMS
+          test "$(gh release view --json tagName -q .tagName)" != "$RELEASE_TAG"

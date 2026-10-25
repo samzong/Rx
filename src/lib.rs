@@ -1,4 +1,5 @@
 mod agent;
+mod agent_dist;
 mod args;
 mod catalog;
 mod claude_catalog;
@@ -34,6 +35,9 @@ pub fn run(raw_args: impl IntoIterator<Item = impl Into<OsString>>) -> Result<()
 }
 
 fn run_with(raw_args: Vec<OsString>, paths: &Paths, env: &EnvLookup) -> Result<()> {
+    if raw_args.len() == 2 && raw_args[1] == agent_dist::BACKGROUND_ARGUMENT {
+        return agent_dist::background(paths);
+    }
     let command = if raw_args.first().and_then(|argv0| argv0_harness(argv0)).is_some() {
         parse(&rewrite_argv0(raw_args.clone()))?
     } else {
@@ -74,10 +78,20 @@ fn launch_request(
     env: &EnvLookup,
     raw_args: &[OsString],
 ) -> Result<()> {
-    if let Err(error) = update::maybe_before_launch(paths, env, raw_args) {
+    let interactive = std::io::IsTerminal::is_terminal(&std::io::stdin())
+        && std::io::IsTerminal::is_terminal(&std::io::stderr())
+        && !args::has_flags(
+            args::before_double_dash(&request.passthrough),
+            &["-p", "--print", "-h", "--help", "-v", "-V", "--version"],
+        );
+    if interactive && let Err(error) = update::maybe_before_launch(paths, env, raw_args) {
         eprintln!("[rx] update skipped: {error:#}");
     }
-    let program = install::ensure(request.harness, env)?;
+    let program = if request.harness == args::Harness::Agent {
+        agent_dist::ensure(paths, env, interactive)?
+    } else {
+        install::ensure(request.harness, env)?
+    };
     let mut plan = plan(&request, paths, env)?;
     plan.program = program;
     if let Some(note) = &plan.stderr_note {

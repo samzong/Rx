@@ -95,9 +95,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -eu
           tag="$RELEASE_TAG"
+          sha256sum rx-*.tar.gz rx-*.zip > SHA256SUMS
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" --clobber rx-*.tar.gz rx-*.zip
+            gh release upload "$tag" --clobber rx-*.tar.gz rx-*.zip SHA256SUMS
+            gh release edit "$tag" --latest
           else
-            gh release create "$tag" --title "$tag" --generate-notes rx-*.tar.gz rx-*.zip
+            gh release create "$tag" --title "$tag" --generate-notes --latest rx-*.tar.gz rx-*.zip SHA256SUMS
           fi
+          test "$(gh release view --json tagName -q .tagName)" = "$tag"

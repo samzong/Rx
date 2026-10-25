@@ -24,6 +24,7 @@ fn update_pending_uses_release_version() {
         version: "0.5.0".to_string(),
         asset_name: String::new(),
         download_url: String::new(),
+        checksum_url: String::new(),
     };
     assert!(!crate::update::update_pending("0.5.0", &release));
     assert!(crate::update::update_pending("0.4.0", &release));
