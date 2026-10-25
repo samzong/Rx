@@ -13,7 +13,10 @@ input.on("line", (line) => {
     if (process.argv.includes("--hang")) return;
     respond(message.id, { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "rx-mcp-fixture", version: "1" } });
   } else if (message.method === "tools/list") {
+    if (process.argv.includes("--hang-list")) return;
     const names = ["echo", "fail", "slow", "structured", "a.b", "a_b", "a".repeat(90)];
+    const extra = process.argv.find((arg) => arg.startsWith("--tool="))?.slice(7);
+    if (extra) names.push(extra);
     if (process.argv.includes("--duplicate-tool")) names.push("echo");
     respond(message.id, { tools: names.map((name) => ({ name, description: `Fixture ${name} tool`, inputSchema: { type: "object", properties: { value: { type: "string" } } } })) });
   } else if (message.method === "tools/call") {
