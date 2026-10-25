@@ -50,6 +50,10 @@ side of the provider handoff is RX-AGENT-001..003 in
 | RX-MODEL-001 | The model is `--model`, then `RX_MODEL`, then `model` in `$RX_HOME/config.json`. In an rx launch, a missing `model` selects `RX_AGENT_PROVIDER`'s `defaultModel` with a stderr note, and a `model` of another provider, or one that cannot be resolved in that launch, falls back to `defaultModel` with a stderr note naming the reason. Without a launch, a missing or unresolvable model is an error. An invalid `thinking` is always an error. |
 | RX-PRIVATE-001 | Session logs live under `$RX_HOME` (default `~/.rx`) with `0700` directories and `0600` files. Session logs and eval tasks never enter this repository. |
 | RX-PERM-001 | Tools run with the user's permissions and no sandbox. This is an owner decision for the prototype; a sandbox replaces it in a later phase. |
+| RX-ACP-001 | ACP v1 uses SDK 2.0.2 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. Load uses current launch defaults, then the client can reapply its saved choices. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
+| RX-ACP-002 | Each model exposes only its pi-ai thinking levels. Switching models clamps thinking to the new model and resets Fast. Boolean controls require the client capability. Lody receives per-model levels and Fast support through its versioned metadata because standard configuration options describe only the current model. |
+| RX-ACP-003 | Fast is available only for the native openai-codex subscription endpoint and exact models supported by the Codex 0.163.0 catalog and current Speed documentation. Rx retains streamSimple and injects service_tier: priority through onPayload. Other providers and endpoints receive no Fast injection. |
+| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement. Image input requires the current model's image capability. Rx does not connect MCP servers and reports this limitation on stderr when servers are supplied. HTTP and SSE MCP capabilities are false. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
 
@@ -70,75 +74,73 @@ side of the provider handoff is RX-AGENT-001..003 in
 
 ## Instructions and skills
 
-The project root is the nearest Git working tree root reported by
-`git rev-parse --show-toplevel` from the session working directory.
-This includes Git worktrees and keeps a nested repository inside its own boundary.
-Rx resolves the working directory through symlinks before discovery.
-If that path is missing or an ancestor is no longer a directory, discovery has no project scope.
-Resume and ACP load still read global context and keep the saved working directory.
-They do not search surviving ancestors or replace the saved path with the caller's directory.
-New sessions reject a missing working directory before creating a log or lock.
-Other path errors, including permission errors, still stop context loading.
-If Git is unavailable or reports no containing root, the working directory is the entire project scope.
-Rx does not read instructions or skills from arbitrary ancestors outside this scope.
-Searching for a `.git` marker is the smaller alternative to the Git command.
-Rx uses Git because Git owns the boundary of worktrees, submodules, and nested repositories.
-The command runs once when Rx builds the system prompt.
+Rx resolves working-directory symlinks, then runs `git rev-parse --show-toplevel` there once per system prompt to find the nearest project root.
+Git owns worktree, submodule, and nested-repository boundaries, unlike the simpler `.git` marker search.
+Without Git or a containing root, project scope is the working directory alone.
+Rx reads no project instructions or skills from ancestors outside that scope.
+A missing directory or non-directory ancestor removes project scope.
+Resume and ACP load keep the saved working directory and global context, without searching surviving ancestors or substituting the caller's directory.
+Other path errors, including permission errors, stop context loading.
 
-Rx expands local `@path` references at their position in an instruction file.
-A reference must occupy its own line outside fenced or indented code.
-Absolute paths, `~/`, `./`, and `../` paths can contain spaces.
-Other relative paths must contain a slash or dot and cannot contain whitespace.
-Rx expands these unprefixed candidates only when they resolve to regular files, including through symlinks.
-Missing candidates, directories, and other file types stay literal. Permission errors still stop startup with the source path and line.
-For example, `@types/node`, `@1.4.0`, and `@app.route` stay literal unless a matching local file exists.
-Bare mentions, email addresses, URLs, and references within prose stay literal.
-Relative paths use the directory of the referring file after resolving symlinks.
-Rx expands `~/` against the current user home.
-Rx loads each real file once across global instructions, project instructions, and references.
-A reference to an active file is a cycle and stops startup.
-Missing top-level instruction files are optional.
-An unreadable instruction file, a broken top-level symlink, or a missing explicit reference stops startup with its source path.
+Local `@path` references occupy their own line outside fenced or indented code and expand in place.
+Absolute, `~/`, `./`, and `../` paths permit spaces.
+Unprefixed paths require a slash or dot, forbid whitespace, and expand only to regular files, including through symlinks.
+Missing candidates, directories, and other file types stay literal, as do bare mentions, email addresses, URLs, and references within prose.
+Thus `@types/node`, `@1.4.0`, and `@app.route` expand only if a matching file exists.
+Relative paths use the resolved referring file's directory. `~/` uses the current home.
+Rx loads each real file once across all instructions and references. Active-file cycles stop startup.
+Missing top-level files are optional. Unreadable files, broken top-level symlinks, and missing explicit references stop startup with the source path.
+Reference permission errors also include the source line.
 
-Skill discovery follows directory symlinks and uses real paths to remove duplicates
-and stop directory cycles. Only `.system` hidden directories are traversed.
-Other hidden directories, including `.deprecated`, are excluded.
-Within each search root, ordinary skills precede `.system` groups, with deterministic name ordering.
-The search-root priority still applies across project and global roots.
-An ordinary skill overriding a `.system` skill is expected and silent.
-Other name collisions remain visible with both paths, including collisions between ordinary skills.
-A directory with `SKILL.md` is a skill root, so discovery does not scan its references or other children.
-Discovery skips `node_modules` and does not load loose Markdown files as skills.
+Skill discovery follows directory symlinks and deduplicates real paths to stop cycles.
+RX-SKILL-001 defines hidden-directory traversal, root priority, and collision reporting.
+Names have deterministic ordering within each root.
+A directory containing `SKILL.md` ends discovery below that directory.
+Discovery skips `node_modules` and loose Markdown files.
 Missing search directories are optional. Other discovery and metadata problems appear on stderr.
-ACP stdout remains reserved for protocol messages.
+ACP stdout carries only protocol messages.
 
 CLI and ACP build the complete system prompt before creating or opening a log.
-Resume reads the saved working directory without taking a lock, builds its context,
-and only then opens and repairs the session. A failed context build cannot leave an
-empty session ahead of the last real session in `--continue`.
-Fixing the reference allows a retry without removing session files or locks.
-Post-failure cleanup is the strongest alternative, but it needs separate rollback
-for new logs, existing log repairs, and locks. Preflight avoids those writes entirely.
-Explicit missing references and cycles still stop startup. Rx never silently drops those rules.
-ACP reports context failures in the error message with the source path and line when available.
+Resume reads the saved directory without a lock before building context, then opens and repairs the session.
+A failed build leaves no empty session ahead of the last real session in `--continue`.
+Fixing the reference permits retry without cleanup. ACP errors include the source path and line when available.
+Post-failure cleanup is the strongest alternative, but requires separate rollback for new logs, repairs, and locks.
+Preflight avoids those writes and never silently drops missing references or cycles.
 
-Rx passes the discovered files to the public pi-coding-agent 1.4.0 API:
-`loadSkills({ includeDefaults: false, skillPaths: [...] })` and
-`formatSkillsForPrompt(skills, "read")`.
-The upstream loader parses YAML metadata and supplies validation and collision diagnostics.
-Rx supplies explicit files because upstream directory discovery skips hidden groups.
-The public `skillPaths` option accepts this filtered list without changes to the upstream loader.
-Rx keeps its own agent loop, tools, and session log.
-The existing `read` tool activates a listed skill by reading its absolute path.
-References use paths relative to that skill directory.
-A skill does not add tools or permissions.
-Rx has no explicit skill command, so a disabled skill requires the user to supply its file through an ordinary request.
+Rx supplies discovered files to the public pi-coding-agent 1.4.0 API through
+`loadSkills({ includeDefaults: false, skillPaths: [...] })` and `formatSkillsForPrompt(skills, "read")`.
+Upstream owns YAML metadata, validation, collision diagnostics, and prompt formatting.
+Explicit `skillPaths` include hidden groups that upstream discovery skips, without upstream changes.
+Rx retains its agent loop, tools, log, discovery boundary, and instruction expansion.
+The simpler upstream default resource loader has different instruction paths and defaults from RX-CONTEXT-001 and RX-SKILL-001.
+The `read` tool opens skill bodies by absolute path. References are relative to the skill directory.
+Skills add no tools or permissions. Without a skill command, disabled skills require an ordinary user request supplying the file.
+This contract adds no flags, environment variables, or hot reload.
 
-The simpler alternative is the upstream default resource loader.
-Its instruction paths and defaults differ from RX-CONTEXT-001 and RX-SKILL-001.
-Rx therefore owns the small discovery boundary and instruction expansion module,
-while the upstream API owns skill metadata and prompt formatting.
-No new flags, environment variables, or hot reload are part of this contract.
+## ACP session controls
+
+Configuration requests fail while a prompt or another configuration change is active.
+Validation and snapshot construction finish before the selection changes.
+The ACP session owns model, thinking, and Fast. The agent uses that selection for its next model call.
+Lody owns and reapplies saved choices after new or loaded sessions. Session logs keep their format.
+Standard `configOptions` are primary. SDK 2.0.2 does not expose the strongest alternative, the legacy model setter.
+Optional `_meta.lody.modelCapabilities` describes each available model before selection because standard options describe only the current model.
+The map and controls share pi-ai metadata and Fast policy.
+
+The seven Fast model IDs are `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
+They require https://chatgpt.com/backend-api and API `openai-codex-responses`.
+Fast requests priority service and can use more subscription allowance ([Speed documentation](https://developers.openai.com/codex/speed/)).
+The server chooses the actual tier. A successful priority request can receive default service and does not prove Fast delivery.
+If Codex changes supported tiers, review the model list.
+The strongest alternative is the low-level `stream` API with `serviceTier`.
+Rx retains `streamSimple` for thinking-level conversion and `onPayload` forwarding in pi-ai 1.4.0.
+If the dependency changes, run a payload probe to test that forwarding.
+
+Lody sends its built-in stdio MCP server even without HTTP MCP support.
+The stable protocol has no flag to disable stdio MCP. Rx adds no MCP client or approval policy.
+Ordinary chat retains four tools, excluding Lody's server tools.
+Global image support means at least one available model accepts images.
+Each prompt rejects unsupported images before logging or provider access.
 
 ## Change authority
 

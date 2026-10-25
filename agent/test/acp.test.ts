@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk";
-import { fauxAssistantMessage, fauxThinking, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxThinking, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAcpApp, historyUpdates, promptInput, type AcpOptions } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, foreignSession, tempDir } from "./helpers.ts";
@@ -124,6 +124,7 @@ test("prompts are rejected for unknown sessions and while a session is running",
     while (!updates.some((u) => u.update.sessionUpdate === "tool_call")) await new Promise((r) => setTimeout(r, 10));
     await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "b" }] }), /already running/);
     await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }), /running/);
+    await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", value: "off" }), /running/);
     await ctx.notify(acp.methods.agent.session.cancel, { sessionId });
     await first;
   });
@@ -271,4 +272,50 @@ test("load replays a session after its cwd is deleted while new rejects the miss
     assert.equal(result.stopReason, "end_turn");
   });
   assert.deepEqual(readdirSync(join(home, "sessions")).filter((file) => file.endsWith(".jsonl")), [`${id}.jsonl`]);
+});
+
+
+test("session configuration changes the next model call and load returns a fresh complete snapshot", async () => {
+  const faux = fauxProvider({ models: [
+    { id: "reasoner", name: "Reasoner", reasoning: true, contextWindow: 10000, input: ["text", "image"] },
+    { id: "plain", name: "Plain", reasoning: false, contextWindow: 2000, input: ["text"] },
+  ] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel("reasoner")!;
+  const home = tempDir();
+  const cwd = tempDir();
+  const updates: acp.SessionUpdate[] = [];
+  const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
+  const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "high" }) });
+  await client.connectWith(app, async (ctx) => {
+    const init = await ctx.request(acp.methods.agent.initialize, { protocolVersion: 1, clientCapabilities: { session: { configOptions: { boolean: {} } } } });
+    assert.equal(init.agentCapabilities?.promptCapabilities?.image, true);
+    assert.deepEqual(init.agentCapabilities?.mcpCapabilities, { http: false, sse: false });
+    const created = await newSession(ctx, cwd);
+    const { sessionId } = created;
+    assert.deepEqual(created.configOptions?.map((option) => option.category), ["model", "thought_level"]);
+    const configured = await ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "model", value: `${model.provider}/plain` });
+    assert.equal(configured.configOptions.find((option) => option.id === "model")?.currentValue, `${model.provider}/plain`);
+    assert.equal(configured.configOptions.find((option) => option.id === "thinking")?.currentValue, "off");
+    await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", value: "high" }));
+    await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "fast", type: "boolean", value: true }));
+    await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "image", data: "AAAA", mimeType: "image/png" }] }), /does not support image input/);
+    assert.equal(faux.state.callCount, 0);
+    faux.setResponses([(_context, options, _state, calledModel) => {
+      assert.equal(calledModel.id, "plain");
+      assert.equal(options?.reasoning, undefined);
+      const message = fauxAssistantMessage("configured");
+      return message;
+    }]);
+    await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "go" }] });
+    const logged = readFileSync(join(home, "sessions", `${sessionId}.jsonl`), "utf8").trim().split("\n").map((line) => JSON.parse(line)).findLast((entry) => entry.message?.role === "assistant").message;
+    const used = logged.usage.input + logged.usage.output + logged.usage.cacheRead + logged.usage.cacheWrite;
+    assert.ok(used > 0);
+    assert.deepEqual(updates.filter((update) => update.sessionUpdate === "usage_update").at(-1), { sessionUpdate: "usage_update", used, size: 2000 });
+    assert.ok(updates.some((update) => update.sessionUpdate === "config_option_update"));
+    const loaded = await ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+    assert.equal(loaded.configOptions?.find((option) => option.id === "model")?.currentValue, `${model.provider}/reasoner`);
+    assert.equal(loaded.configOptions?.find((option) => option.id === "thinking")?.currentValue, "high");
+  });
 });

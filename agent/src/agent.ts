@@ -1,5 +1,6 @@
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Api, type AssistantMessage, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type Models } from "@earendil-works/pi-ai";
+import { fastStreamOptions } from "./acp-fast.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
 import { skillCatalog } from "./skills.ts";
@@ -36,6 +37,7 @@ export interface RxAgentOptions {
   log: SessionLog;
   origin: Origin;
   messages?: AgentMessage[];
+  fast?: () => boolean;
 }
 
 const ROLE_ORIGIN: Record<string, Origin | undefined> = { assistant: "model", toolResult: "tool", system: "rx" };
@@ -61,7 +63,7 @@ function abortedStream(model: Model<Api>): AssistantMessageEventStream {
 export function createRxAgent(options: RxAgentOptions): Agent {
   const agent = new Agent({
     streamFn: (model, context, streamOptions) =>
-      streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, streamOptions),
+      streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, fastStreamOptions(model, streamOptions, options.fast?.() === true)),
     sessionId: options.log.id,
     initialState: {
       systemPrompt: options.systemPrompt,
