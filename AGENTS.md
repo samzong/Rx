@@ -3,6 +3,35 @@
 Independent native harness launcher. This repository owns Rx, its provider
 metadata, binaries, and release workflow.
 
+## Required prior-art comparison
+
+Rx began its design late and uses pi as its technical foundation. Start from
+mature harness implementations before designing Rx changes.
+
+- These requirements are mandatory for every requirement and bug fix across
+  this repository. Apply them to every commit and PR, including documentation
+  and generated data.
+- Before implementation, report to the owner how each harness below handles
+  the requirement or bug. Use version-matched upstream source or official
+  documentation. Cite the version or commit and source locations. If a harness
+  lacks the capability, state that explicitly. Distinguish missing evidence
+  from an absent capability.
+- Lody through ACP is the primary use case. For each change, explain which
+  capabilities Lody actually needs and consumes through ACP. State the
+  acceptance steps and expected results in Lody.
+- Include the comparison, sources, Lody requirements, and Lody acceptance in
+  every PR body.
+
+Compare all five upstream harnesses:
+
+- Codex: https://github.com/openai/codex
+- Claude Code: https://github.com/anthropics/claude-code
+- pi (pi-coding-agent in pi-mono, now pi): https://github.com/earendil-works/pi
+- OpenCode: https://github.com/anomalyco/opencode
+- deepseek-harness: https://github.com/deepseek-ai/deepseek-harness
+
+## Repository contracts
+
 - Before changing Rx, read `docs/DESIGN.md`: it owns invariants, per-surface
   ownership, change authority, and native-behavior acceptance requirements.
   Identify affected invariant IDs and trace `request -> install -> plan ->
