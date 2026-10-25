@@ -15,7 +15,7 @@ Handshake (no request environment set):
 
 ```
 $ rx host
-{"protocol":{"major":1,"minor":1},"version":"0.1.0","harnesses":["claude","codex","opencode","pi","dsh","kimi"]}
+{"protocol":{"major":1,"minor":1},"version":"0.2.0","harnesses":["claude","codex","opencode","pi","dsh","kimi"]}
 ```
 
 Launch: `rx host -- <native harness args>` with two environment variables:
