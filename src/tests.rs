@@ -28,24 +28,6 @@ use crate::config::{self, Paths};
 use crate::launch::{self, EnvLookup};
 use crate::{catalog, claude_catalog as claude, provider};
 
-pub(crate) fn run_isolated(name: &str) -> bool {
-    if std::env::var("RX_TEST_ISOLATED_CASE").is_ok_and(|value| value == name) {
-        return false;
-    }
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", name, "--nocapture"])
-        .env("RX_TEST_ISOLATED_CASE", name)
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success() && stdout.contains("1 passed"),
-        "{stdout}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    true
-}
-
 fn os(argv: &[&str]) -> Vec<OsString> {
     argv.iter().map(|arg| OsString::from(*arg)).collect()
 }

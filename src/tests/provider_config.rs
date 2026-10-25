@@ -444,11 +444,6 @@ base_url = "https://provider.test/v1"
 
 #[test]
 fn logout_cascade_clears_the_plaintext_key_kimi_stored_for_the_provider() {
-    if run_isolated(
-        "tests::provider_config::logout_cascade_clears_the_plaintext_key_kimi_stored_for_the_provider",
-    ) {
-        return;
-    }
     let (_dir, paths) = temp_paths();
     fs::write(&paths.config, fixture_config("http://127.0.0.1:9")).unwrap();
     config::login(&paths, "acme", "sk-secret".to_string()).unwrap();
@@ -475,11 +470,6 @@ fn logout_cascade_clears_the_plaintext_key_kimi_stored_for_the_provider() {
 
 #[test]
 fn logout_keeps_the_stored_key_while_a_kimi_session_holds_the_plaintext_copy() {
-    if run_isolated(
-        "tests::provider_config::logout_keeps_the_stored_key_while_a_kimi_session_holds_the_plaintext_copy",
-    ) {
-        return;
-    }
     let (_dir, paths) = temp_paths();
     fs::write(&paths.config, fixture_config("http://127.0.0.1:9")).unwrap();
     config::login(&paths, "acme", "sk-secret".to_string()).unwrap();

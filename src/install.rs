@@ -62,11 +62,7 @@ pub(crate) fn ensure(harness: Harness, env: &EnvLookup) -> Result<PathBuf> {
 }
 
 fn ensure_agent() -> Result<PathBuf> {
-    native_agent_path().ok_or_else(|| {
-        anyhow::anyhow!(
-            "rx-agent is not installed. Run `rxa` once in a terminal to install it, then retry."
-        )
-    })
+    native_agent_path().context(crate::agent_dist::MISSING)
 }
 
 pub(crate) fn native_agent_path() -> Option<PathBuf> {

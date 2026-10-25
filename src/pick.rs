@@ -194,7 +194,7 @@ pub(crate) fn harness_with_provider(
     let interactive = interactive();
     let providers =
         if interactive { crate::providers::launch_choices(paths, env)? } else { Vec::new() };
-    let recommend_agent = interactive && crate::agent_dist::recommend(paths, env)?;
+    let recommend_agent = interactive && crate::agent_dist::recommend(paths, env);
     pick(interactive, env, App::new(CHOICES.to_vec(), providers, provider, recommend_agent))
 }
 

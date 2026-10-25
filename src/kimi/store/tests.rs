@@ -1,6 +1,5 @@
 use super::*;
 use crate::args::take_model;
-use crate::tests::run_isolated;
 use std::ffi::OsString;
 use std::fs;
 
@@ -23,6 +22,24 @@ fn listed(id: &str, name: &str, context: i64) -> ListedModel {
 
 fn os(argv: &[&str]) -> Vec<OsString> {
     argv.iter().map(OsString::from).collect()
+}
+
+fn run_isolated(name: &str) -> bool {
+    if std::env::var_os("RX_TEST_KIMI_CATALOG_CHILD").is_some() {
+        return false;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture"])
+        .env("RX_TEST_KIMI_CATALOG_CHILD", "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
 }
 
 #[test]
@@ -261,9 +278,6 @@ fn legacy_and_unverifiable_leases_fail_closed() {
 
 #[test]
 fn purge_removes_owned_provider_key_and_models() {
-    if run_isolated("kimi::store::tests::purge_removes_owned_provider_key_and_models") {
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     fs::write(
@@ -288,9 +302,6 @@ fn purge_removes_owned_provider_key_and_models() {
 
 #[test]
 fn purge_keeps_user_edited_entries_and_reports_them() {
-    if run_isolated("kimi::store::tests::purge_keeps_user_edited_entries_and_reports_them") {
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let lease = seed(&path, "rx-acme", "sk-secret", &[listed("glm-5", "GLM 5", 200000)]).unwrap();
@@ -307,9 +318,6 @@ fn purge_keeps_user_edited_entries_and_reports_them() {
 
 #[test]
 fn purge_leaves_other_providers_untouched() {
-    if run_isolated("kimi::store::tests::purge_leaves_other_providers_untouched") {
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let first = seed(&path, "rx-acme", "sk-one", &[listed("glm-5", "GLM 5", 200000)]).unwrap();
@@ -329,9 +337,6 @@ fn purge_leaves_other_providers_untouched() {
 
 #[test]
 fn purge_refuses_while_a_launch_holds_the_catalog() {
-    if run_isolated("kimi::store::tests::purge_refuses_while_a_launch_holds_the_catalog") {
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let lease = seed(&path, "rx-acme", "sk-secret", &[listed("glm-5", "GLM 5", 200000)]).unwrap();

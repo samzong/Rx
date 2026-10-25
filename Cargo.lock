@@ -747,7 +747,6 @@ dependencies = [
  "fs2",
  "fuzzy-matcher",
  "ratatui",
- "semver",
  "serde",
  "serde_json",
  "serde_yaml",

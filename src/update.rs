@@ -8,12 +8,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::args::UpdateCommand;
 use crate::config::Paths;
 use crate::launch::EnvLookup;
 
-const GITHUB_REPO: &str = "samzong/Rx";
+pub(crate) const GITHUB_REPO: &str = "samzong/Rx";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 pub(crate) const LAUNCH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const HTTP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -79,23 +80,6 @@ pub(crate) fn maybe_before_launch(
     env: &EnvLookup,
     raw_args: &[std::ffi::OsString],
 ) -> Result<()> {
-    maybe_before_launch_with_interactivity(
-        paths,
-        env,
-        raw_args,
-        io::stdin().is_terminal() && io::stderr().is_terminal(),
-    )
-}
-
-pub(crate) fn maybe_before_launch_with_interactivity(
-    paths: &Paths,
-    env: &EnvLookup,
-    raw_args: &[std::ffi::OsString],
-    interactive: bool,
-) -> Result<()> {
-    if !interactive {
-        return Ok(());
-    }
     if env.get("RX_NO_UPDATE").is_some_and(|value| !value.is_empty() && value != "0") {
         return Ok(());
     }
@@ -124,10 +108,6 @@ pub(crate) fn maybe_before_launch_with_interactivity(
         return Ok(());
     }
     if !state.auto_update {
-        if !io::stderr().is_terminal() || !io::stdin().is_terminal() {
-            eprintln!("Rx {} is available — run `rx update`", release.version);
-            return Ok(());
-        }
         match prompt(&release.version)? {
             PromptChoice::Always => enable_auto_update(paths)?,
             PromptChoice::UpdateNow => {}
@@ -198,53 +178,70 @@ pub(crate) fn fetch_latest_release(timeout: Duration) -> Result<ReleaseInfo> {
     let body = http_get(&url, &[("Accept", "application/vnd.github+json")], timeout)?;
     let value: serde_json::Value = serde_json::from_str(&body).context("GitHub release JSON")?;
     let tag = value.get("tag_name").and_then(|v| v.as_str()).context("release missing tag_name")?;
-    let version = tag
-        .strip_prefix('v')
-        .filter(|v| crate::agent_dist::release::stable_version(v).is_some())
-        .context("latest release is not an Rx stable release")?
-        .to_string();
+    release_info(&value, tag.trim_start_matches('v').to_string(), asset_name)
+}
+
+pub(crate) fn release_info(
+    release: &serde_json::Value,
+    version: String,
+    asset_name: &str,
+) -> Result<ReleaseInfo> {
     let assets =
-        value.get("assets").and_then(|v| v.as_array()).context("release missing assets")?;
-    let download_url = assets
-        .iter()
-        .find(|asset| asset.get("name").and_then(|v| v.as_str()) == Some(asset_name))
-        .and_then(|asset| asset.get("browser_download_url").and_then(|v| v.as_str()))
-        .with_context(|| format!("release asset not found: {asset_name}"))?
-        .to_string();
-    let checksum_url = assets
-        .iter()
-        .find(|asset| asset.get("name").and_then(|v| v.as_str()) == Some("SHA256SUMS"))
-        .and_then(|asset| asset.get("browser_download_url").and_then(|v| v.as_str()))
-        .unwrap_or_default()
-        .to_string();
-    Ok(ReleaseInfo { version, asset_name: asset_name.to_string(), download_url, checksum_url })
+        release.get("assets").and_then(|v| v.as_array()).context("release missing assets")?;
+    let url = |name: &str| {
+        assets
+            .iter()
+            .find(|asset| asset.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|asset| asset.get("browser_download_url").and_then(|v| v.as_str()))
+            .map(str::to_string)
+    };
+    Ok(ReleaseInfo {
+        version,
+        asset_name: asset_name.to_string(),
+        download_url: url(asset_name)
+            .with_context(|| format!("release asset not found: {asset_name}"))?,
+        checksum_url: url("SHA256SUMS").unwrap_or_default(),
+    })
 }
 
 fn install_release(release: &ReleaseInfo) -> Result<()> {
+    let temp = tempfile::tempdir().context("create temp dir for update")?;
+    download_release(release, temp.path())?;
+    replace_executable(&temp.path().join(if cfg!(windows) { "rx.exe" } else { "rx" }))
+}
+
+pub(crate) fn download_release(release: &ReleaseInfo, dest: &Path) -> Result<()> {
     if release.checksum_url.is_empty() {
         bail!("release missing SHA256SUMS");
     }
-    let temp = tempfile::tempdir().context("create temp dir for update")?;
-    let archive_path = temp.path().join(&release.asset_name);
     let bytes = http_get_bytes(&release.download_url, &[], HTTP_TIMEOUT)?;
     let manifest = http_get(&release.checksum_url, &[], HTTP_TIMEOUT)?;
-    crate::agent_dist::release::verify_sha256(&bytes, &release.asset_name, &manifest)?;
+    verify_sha256(&bytes, &release.asset_name, &manifest)?;
+    let archive_path = dest.join(&release.asset_name);
     fs::write(&archive_path, bytes).context("write release download")?;
-    let extracted = extract_rx_binary(&archive_path, temp.path())?;
-    replace_executable(&extracted)
+    if release.asset_name.ends_with(".tar.gz") {
+        extract_tar_gz(&archive_path, dest)?;
+    } else if release.asset_name.ends_with(".zip") {
+        extract_zip(&archive_path, dest)?;
+    } else {
+        bail!("unsupported release archive: {}", release.asset_name);
+    }
+    fs::remove_file(&archive_path).context("remove release download")
 }
 
-fn extract_rx_binary(archive_path: &Path, dest: &Path) -> Result<PathBuf> {
-    let file_name = archive_path.file_name().and_then(|name| name.to_str()).unwrap_or("");
-    if file_name.ends_with(".tar.gz") {
-        extract_tar_gz(archive_path, dest)?;
-        Ok(dest.join("rx"))
-    } else if file_name.ends_with(".zip") {
-        extract_zip(archive_path, dest)?;
-        Ok(dest.join("rx.exe"))
-    } else {
-        bail!("unsupported release archive: {}", archive_path.display())
+fn verify_sha256(bytes: &[u8], name: &str, manifest: &str) -> Result<()> {
+    let expected = manifest
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            let digest = fields.next()?;
+            (fields.next()?.trim_start_matches('*') == name).then_some(digest)
+        })
+        .with_context(|| format!("SHA256SUMS missing {name}"))?;
+    if !format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(expected) {
+        bail!("SHA-256 mismatch for {name}");
     }
+    Ok(())
 }
 
 fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<()> {
@@ -353,25 +350,7 @@ pub(crate) fn http_get(url: &str, headers: &[(&str, &str)], timeout: Duration) -
     String::from_utf8(bytes).context("response is not UTF-8")
 }
 
-pub(crate) fn http_get_bytes(
-    url: &str,
-    headers: &[(&str, &str)],
-    timeout: Duration,
-) -> Result<Vec<u8>> {
-    #[cfg(all(rx_release_fixture, not(test)))]
-    let fixture_url = std::env::var("RX_TEST_RELEASE_SOURCE").ok().and_then(|base| {
-        url.strip_prefix("https://api.github.com/repos/samzong/Rx")
-            .map(|suffix| format!("{base}{suffix}"))
-    });
-    #[cfg(test)]
-    let fixture_url = TEST_RELEASE_SOURCE.with(|source| {
-        source.borrow().as_ref().and_then(|base| {
-            url.strip_prefix("https://api.github.com/repos/samzong/Rx")
-                .map(|suffix| format!("{base}{suffix}"))
-        })
-    });
-    #[cfg(any(test, rx_release_fixture))]
-    let url = fixture_url.as_deref().unwrap_or(url);
+fn http_get_bytes(url: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<Vec<u8>> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
@@ -484,11 +463,6 @@ pub(crate) fn now_unix_seconds() -> String {
 }
 
 #[cfg(test)]
-thread_local! {
-    pub(crate) static TEST_RELEASE_SOURCE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -509,5 +483,15 @@ mod tests {
                 "{last_check}"
             );
         }
+    }
+
+    #[test]
+    fn checksum_must_match_the_named_manifest_entry() {
+        let digest = format!("{:x}", Sha256::digest(b"release"));
+        let manifest = format!("{digest}  rx.tar.gz\n{digest} *rx.zip\n");
+        verify_sha256(b"release", "rx.tar.gz", &manifest).unwrap();
+        verify_sha256(b"release", "rx.zip", &manifest).unwrap();
+        assert!(verify_sha256(b"changed", "rx.tar.gz", &manifest).is_err());
+        assert!(verify_sha256(b"release", "absent", &manifest).is_err());
     }
 }

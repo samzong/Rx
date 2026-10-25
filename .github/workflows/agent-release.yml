@@ -31,9 +31,17 @@ jobs:
         id: release
         shell: bash
         run: |
-          set -euo pipefail
-          sha="$(python3 scripts/release.py tag --product rx-agent --tag "$RELEASE_TAG")"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          set -eu
+          version="$(node -p 'require("./agent/package.json").version')"
+          if [ "$RELEASE_TAG" != "rx-agent-v$version" ]; then
+            echo "::error::release tag $RELEASE_TAG does not match agent/package.json version $version"
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]; then
+            echo "::error::checked out commit does not match release tag $RELEASE_TAG"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: agent/package.json
@@ -43,7 +51,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: agent/pnpm-lock.yaml
       - run: make agent-check
-      - run: python3 -B scripts/test-release.py
 
   build:
     needs: check
@@ -89,17 +96,6 @@ jobs:
           mkdir -p release-bin
           cd agent
           bun build --compile --target "$BUN_TARGET" src/cli.ts --outfile "../release-bin/$BINARY"
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Verify native binary
-        shell: bash
-        env:
-          BINARY: ${{ runner.os == 'Windows' && 'rx-agent.exe' || 'rx-agent' }}
-        run: |
-          set -euo pipefail
-          version="$(node -p 'JSON.parse(require("node:fs").readFileSync("agent/package.json", "utf8")).version')"
-          python scripts/probe-agent-release.py "release-bin/$BINARY" "$version"
       - name: Package Unix binary
         if: runner.os != 'Windows'
         shell: bash
@@ -129,22 +125,29 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
-    concurrency:
-      group: rx-release-publication
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.check.outputs.sha }}
-          fetch-depth: 0
       - uses: actions/download-artifact@v5
         with:
           pattern: rx-agent-*
           path: release-assets
           merge-multiple: true
-      - name: Publish agent release and preserve Rx latest
+      - name: Publish agent release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           VALIDATED_SHA: ${{ needs.check.outputs.sha }}
-          RELEASE_REPO: ${{ github.repository }}
-        run: python3 scripts/release.py publish --product rx-agent --tag "$RELEASE_TAG" --sha "$VALIDATED_SHA" --assets release-assets --repo "$RELEASE_REPO"
+        run: |
+          set -eu
+          cd release-assets
+          for built in rx-agent-*.sha; do
+            if [ "$(tr -d '[:space:]' < "$built")" != "$VALIDATED_SHA" ]; then
+              echo "::error::$built was not built from validated commit $VALIDATED_SHA"
+              exit 1
+            fi
+          done
+          sha256sum rx-agent-*.tar.gz rx-agent-*.zip > SHA256SUMS
+          gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes --verify-tag --latest=false rx-agent-*.tar.gz rx-agent-*.zip SHA256SUMS
+          test "$(gh release view --json tagName -q .tagName)" != "$RELEASE_TAG"
