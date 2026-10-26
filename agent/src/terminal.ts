@@ -1,6 +1,7 @@
 import { stdin, stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import { hookControl, isHookContext } from "./hooks.ts";
 import { formatModel } from "./models.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 
@@ -19,6 +20,10 @@ function argsSummary(args: unknown): string {
 }
 
 export function render(event: AgentEvent, showThinking: boolean): void {
+  if (event.type === "message_end" && isHookContext(event.message) && event.message.role === "user") {
+    stderr.write(`${typeof event.message.content === "string" ? event.message.content : JSON.stringify(event.message.content)}\n`);
+    return;
+  }
   if (event.type === "message_update") {
     const inner = event.assistantMessageEvent;
     if (inner.type === "text_delta") stdout.write(inner.delta);
@@ -51,6 +56,7 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
   const control = contextControl(agent);
   const unsubscribe = agent.subscribe((event) => render(event, false));
   const unsubscribeCompaction = control.subscribe(renderCompaction);
+  const unsubscribeHooks = hookControl(agent)?.subscribe(({ text }) => stderr.write(`${text}\n`));
   const onSigint = () => {
     agent.abort();
     control.abort();
@@ -63,10 +69,11 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
     process.off("SIGINT", onSigint);
     unsubscribe();
     unsubscribeCompaction();
+    unsubscribeHooks?.();
   }
   const stop = lastStop(agent.state.messages);
   if (!stdout.isTTY) stdout.write("\n");
-  return stop === "error" || stop === "aborted" ? 1 : 0;
+  return hookControl(agent)?.rejected || stop === "error" || stop === "aborted" ? 1 : 0;
 }
 
 export async function runRepl(agent: Agent, banner: string, initialPrompt?: string): Promise<void> {
@@ -89,6 +96,7 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
     if (running) abort();
   });
   const unsubscribe = agent.subscribe((event) => render(event, true));
+  const unsubscribeHooks = hookControl(agent)?.subscribe(({ text }) => stderr.write(`${text}\n`));
   const unsubscribeCompaction = control.subscribe((event) => {
     if (!manual) renderCompaction(event);
   });
@@ -135,6 +143,7 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
     await Promise.all([agent.waitForIdle(), control.waitForIdle()]);
     unsubscribe();
     unsubscribeCompaction();
+    unsubscribeHooks?.();
     rl.close();
   }
 }

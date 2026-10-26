@@ -25,6 +25,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | `src/transport-errors.ts` | Captures safe HTTP transport causes before provider adapters discard them. |
 | `src/instructions.ts` | Finds the project boundary and loads instructions with local file references. |
 | `src/skills.ts` | Finds skill files and uses pi-coding-agent to load metadata and format the catalog. |
+| `src/hooks.ts`, `src/hook-config.ts`, `src/hook-runner.ts` | User command checks, lifecycle, protocol, and process cleanup. |
 | `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
 | `src/mcp.ts` | User and ACP MCP configuration, connections, and tool adaptation. |
 | `src/session-log.ts` | Append-only JSONL session log, resume repair, and session listing. |
@@ -35,6 +36,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | `src/pid-lock.ts` | Pid lock primitives shared by session and credential locks. |
 | `src/terminal.ts` | REPL and `-p` print mode. |
 | `src/acp.ts` | Agent Client Protocol server over stdio. |
+| `src/acp-messages.ts` | ACP prompt, event, and history message conversion. |
 | `src/cli.ts` | Argument parsing and entrypoint. |
 
 ## Invariants
@@ -61,6 +63,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint. Summary requests do not report working-context usage. Measurements before a checkpoint are no longer current. Image input requires the current model's image capability. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
+| RX-HOOK-001 | User command hooks use one read-only configuration snapshot, fail closed before execution, preserve completed tool output, persist labeled context, and cancel process groups. [Full contract](docs/hooks.md). |
 | RX-MCP-001 | User and ACP MCP servers supply session tools through pi-mcp. Startup failures skip the failed server and produce a warning. See the full [MCP contract](docs/mcp.md#contract). |
 
 | RX-COMPACT-001 | Automatic request budgets. [Full contract][compaction]. |
@@ -76,6 +79,7 @@ side of the provider handoff is RX-AGENT-001..003 in
 | Surface | Owner | Rule |
 | --- | --- | --- |
 | `$RX_HOME/config.json` | user | Rx reads `model` and `thinking`; it never writes the file. |
+| `$RX_HOME/hooks.json` | user | Read-only command checks under RX-HOOK-001. No project discovery. |
 | `$RX_HOME/mcp.json` | user | Read-only MCP server definitions under RX-MCP-001. |
 | `$RX_HOME/AGENTS.md` and referenced files | user | Rx reads global instructions. Users can create a symlink to their shared instructions. Rx never creates that link. |
 | `$RX_HOME/sessions/<id>.jsonl` | Rx | Created and appended by Rx only. |
