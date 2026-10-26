@@ -78,7 +78,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
       systemPrompt: options.systemPrompt,
       model: options.model,
       thinkingLevel: options.thinking,
-      tools: [...codingTools(options.cwd), ...options.tools ?? []],
+      tools: [...codingTools(options.cwd, () => agent.state.model), ...options.tools ?? []],
       messages: options.messages ?? [],
     },
   });

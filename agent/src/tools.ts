@@ -1,11 +1,15 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 export const READ_MAX_LINES = 2000;
 export const READ_MAX_BYTES = 50_000;
+export const READ_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+export const READ_IMAGE_MAX_DIMENSION = 8000;
 export const BASH_HEAD_CHARS = 5_000;
 export const BASH_TAIL_CHARS = 25_000;
 export const BASH_DEFAULT_TIMEOUT_S = 120;
@@ -28,6 +32,108 @@ function readText(path: string): string {
   const buffer = readFileSync(path);
   if (buffer.subarray(0, 8192).includes(0)) throw new Error(`${path} looks like a binary file`);
   return buffer.toString("utf8");
+}
+
+function imageMimeType(header: Buffer): string | undefined {
+  if (header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (header.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  if (["GIF87a", "GIF89a"].includes(header.subarray(0, 6).toString("latin1"))) return "image/gif";
+  if (header.subarray(0, 4).toString("latin1") === "RIFF" && header.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  return undefined;
+}
+
+function imageDimensions(bytes: Buffer, mimeType: string): [number, number] | undefined {
+  if (mimeType === "image/png") {
+    if (bytes.length < 33 || bytes.readUInt32BE(8) !== 13 || bytes.toString("latin1", 12, 16) !== "IHDR") return undefined;
+    return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
+  }
+  if (mimeType === "image/gif") {
+    if (bytes.length < 13) return undefined;
+    return [bytes.readUInt16LE(6), bytes.readUInt16LE(8)];
+  }
+  if (mimeType === "image/webp") {
+    if (bytes.length < 12) return undefined;
+    const end = bytes.readUInt32LE(4) + 8;
+    if (end > bytes.length) return undefined;
+    for (let offset = 12; offset + 8 <= end;) {
+      const kind = bytes.toString("latin1", offset, offset + 4);
+      const size = bytes.readUInt32LE(offset + 4);
+      const start = offset + 8;
+      const next = start + size + (size % 2);
+      if (next > end) return undefined;
+      if (kind === "VP8X") {
+        if (size !== 10) return undefined;
+        return [bytes.readUIntLE(start + 4, 3) + 1, bytes.readUIntLE(start + 7, 3) + 1];
+      }
+      if (kind === "VP8L") {
+        if (size < 5 || bytes[start] !== 0x2f || (bytes[start + 4]! >> 5) !== 0) return undefined;
+        const bits = bytes.readUInt32LE(start + 1);
+        return [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1];
+      }
+      if (kind === "VP8 ") {
+        if (size < 10 || (bytes[start]! & 1) !== 0 || !bytes.subarray(start + 3, start + 6).equals(Buffer.from([0x9d, 0x01, 0x2a]))) return undefined;
+        return [bytes.readUInt16LE(start + 6) & 0x3fff, bytes.readUInt16LE(start + 8) & 0x3fff];
+      }
+      offset = next;
+    }
+    return undefined;
+  }
+  for (let offset = 2; offset < bytes.length;) {
+    if (bytes[offset] !== 0xff) return undefined;
+    while (bytes[offset] === 0xff) offset++;
+    const marker = bytes[offset++];
+    if (marker === undefined || marker === 0 || marker === 0xd9 || marker === 0xda) return undefined;
+    if (marker === 0x01 || marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > bytes.length) return undefined;
+    const size = bytes.readUInt16BE(offset);
+    if (size < 2 || offset + size > bytes.length) return undefined;
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      if (size < 8 || !bytes[offset + 7] || size !== 8 + 3 * bytes[offset + 7]!) return undefined;
+      return [bytes.readUInt16BE(offset + 5), bytes.readUInt16BE(offset + 3)];
+    }
+    offset += size;
+  }
+  return undefined;
+}
+
+async function readImage(path: string, model: () => Model<Api>, signal?: AbortSignal): Promise<ImageContent | undefined> {
+  signal?.throwIfAborted();
+  const file = await open(path, "r");
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await file.read(header, 0, header.length, 0);
+    const mimeType = imageMimeType(header.subarray(0, bytesRead));
+    if (!mimeType) return undefined;
+    const selected = model();
+    if (!selected.input.includes("image")) {
+      throw new Error(`Model ${selected.provider}/${selected.id} does not support image input. Select a model that supports images, then read ${path} again.`);
+    }
+    const tooLarge = () => new Error(`Image ${path} exceeds the 3 MiB limit. Resize or crop the image, then read the smaller copy.`);
+    const size = (await file.stat()).size;
+    if (size > READ_IMAGE_MAX_BYTES) throw tooLarge();
+    const buffer = Buffer.alloc(size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      signal?.throwIfAborted();
+      const next = await file.read(buffer, length, buffer.length - length, length);
+      if (!next.bytesRead) break;
+      length += next.bytesRead;
+    }
+    if (length > size) throw new Error(`Image ${path} changed while reading. Read the file again.`);
+    signal?.throwIfAborted();
+    const bytes = buffer.subarray(0, length);
+    const dimensions = imageDimensions(bytes, mimeType);
+    if (!dimensions || dimensions.some((side) => side === 0)) {
+      throw new Error(`Image ${path} has a malformed ${mimeType} header: cannot read its pixel dimensions. Re-export the image as PNG, JPEG, GIF, or WebP, then read the new copy.`);
+    }
+    const [width, height] = dimensions;
+    if (Math.max(width, height) > READ_IMAGE_MAX_DIMENSION) {
+      throw new Error(`Image ${path} is ${width}x${height} px, exceeding the ${READ_IMAGE_MAX_DIMENSION} px longest-side limit. Resize the image, then read the resized copy. On macOS: sips -Z 2000 <path> --out <copy>.`);
+    }
+    return { type: "image", data: bytes.toString("base64"), mimeType };
+  } finally {
+    await file.close();
+  }
 }
 
 const readParams = Type.Object({
@@ -55,14 +161,20 @@ const bashParams = Type.Object({
   ),
 });
 
-export function readTool(cwd: string): AgentTool<typeof readParams, undefined> {
+export function readTool(cwd: string, model?: () => Model<Api>): AgentTool<typeof readParams, undefined> {
   return {
     name: "read",
     label: "Read",
-    description: `Read a text file with line numbers. Returns at most ${READ_MAX_LINES} lines or ${READ_MAX_BYTES} bytes; use offset and limit for more.`,
+    description: `Read text files with line numbers or PNG, JPEG, GIF, and WebP images. Images require a model that supports image input, a file no larger than 3 MiB, and neither side longer than ${READ_IMAGE_MAX_DIMENSION} px. Resize or crop larger images first. Text returns at most ${READ_MAX_LINES} lines or ${READ_MAX_BYTES} bytes; use offset and limit for more. Images ignore offset and limit.`,
     parameters: readParams,
-    async execute(_id, { path, offset, limit }) {
-      const lines = readText(resolvePath(cwd, path)).split("\n");
+    async execute(_id, { path, offset, limit }, signal) {
+      const target = resolvePath(cwd, path);
+      const image = await readImage(target, () => {
+        if (!model) throw new Error("The current model is unavailable. Select a model that supports images, then read the file again.");
+        return model();
+      }, signal);
+      if (image) return { content: [{ type: "text", text: `Read image ${target} [${image.mimeType}]` }, image], details: undefined };
+      const lines = readText(target).split("\n");
       if (lines.length > 1 && lines.at(-1) === "") lines.pop();
       const start = (offset ?? 1) - 1;
       if (start >= lines.length && lines.length > 0) throw new Error(`offset ${offset} is past the end of the file (${lines.length} lines)`);
@@ -205,6 +317,6 @@ export function bashTool(cwd: string): AgentTool<typeof bashParams, undefined> {
   };
 }
 
-export function codingTools(cwd: string): AgentTool<any, undefined>[] {
-  return [readTool(cwd), writeTool(cwd), editTool(cwd), bashTool(cwd)];
+export function codingTools(cwd: string, model: () => Model<Api>): AgentTool<any, undefined>[] {
+  return [readTool(cwd, model), writeTool(cwd), editTool(cwd), bashTool(cwd)];
 }
