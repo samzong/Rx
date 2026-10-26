@@ -13,6 +13,8 @@ import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
 import { VERSION, VERSION_TEXT } from "./version.ts";
+import { loadHooks } from "./hook-config.ts";
+import { hookControl } from "./hooks.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
 
 const HELP = `rx-agent ${VERSION} - the Rx coding agent
@@ -45,6 +47,7 @@ Files:
   $RX_HOME/sessions/<id>.jsonl           append-only session logs
   $RX_HOME/auth.json                     credentials stored by rx-agent login
   $RX_HOME/mcp.json                      MCP servers, using the mcpServers object
+  $RX_HOME/hooks.json                    user command checks; see agent/docs/hooks.md
   $RX_HOME/device-id                     installation id sent to providers that require one
   AGENTS.md or CLAUDE.md                 project instructions from the Git root through the working directory
   .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
@@ -169,9 +172,12 @@ async function main(argv: string[]): Promise<number> {
   const choice = await choose();
   const agentCwd = resumeId ? readSessionHeader(home, resumeId).cwd : cwd;
   const prompt = systemPrompt(agentCwd);
+  const hooks = loadHooks(home);
   const startup = new AbortController();
   let agent: ReturnType<typeof createRxAgent> | undefined;
   let mcp: McpConnection | undefined;
+  const cancelStartup = () => { startup.abort(); agent?.abort(); };
+  process.once("SIGINT", cancelStartup);
   onTerminate(async () => {
     startup.abort();
     agent?.abort();
@@ -184,7 +190,9 @@ async function main(argv: string[]): Promise<number> {
     const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
     const log = loaded?.log ?? SessionLog.create(home, cwd);
     if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);
-    agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages, tools: mcp.tools });
+    agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages, tools: mcp.tools, hooks });
+    await hookControl(agent)?.start(resumeId ? "resume" : "startup", startup.signal);
+    process.off("SIGINT", cancelStartup);
     if (values.print !== undefined) return await runPrint(agent, values.print);
     const banner = loaded
       ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
@@ -192,6 +200,7 @@ async function main(argv: string[]): Promise<number> {
     await runRepl(agent, banner, initialPrompt);
     return 0;
   } finally {
+    process.off("SIGINT", cancelStartup);
     await mcp.close();
   }
 }

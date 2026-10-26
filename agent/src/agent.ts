@@ -6,6 +6,8 @@ import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
 import { skillCatalog } from "./skills.ts";
 import { codingTools } from "./tools.ts";
+import { installHooks, isHookContext } from "./hooks.ts";
+import type { HookConfiguration } from "./hook-types.ts";
 import { transportDiagnostics } from "./transport-errors.ts";
 
 export function systemPrompt(cwd: string, now: Date = new Date()): string {
@@ -41,6 +43,7 @@ export interface RxAgentOptions {
   messages?: AgentMessage[];
   fast?: () => boolean;
   tools?: AgentTool[];
+  hooks?: HookConfiguration;
 }
 
 const ROLE_ORIGIN: Record<string, Origin | undefined> = { assistant: "model", toolResult: "tool", system: "rx" };
@@ -85,8 +88,9 @@ export function createRxAgent(options: RxAgentOptions): Agent {
       const failure = transport.takeFailure();
       if (event.message.stopReason === "error" && failure) event.message.errorMessage = failure;
     }
-    options.log.append(ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
+    options.log.append(isHookContext(event.message) ? "rx" : ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
   });
   installContextControl(agent, options.models, options.log);
+  if (options.hooks) installHooks(agent, options.log, options.hooks);
   return agent;
 }

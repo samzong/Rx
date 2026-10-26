@@ -1,18 +1,21 @@
 import { realpathSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import { getSupportedThinkingLevels, type ImageContent, type Models } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
 import { createRxAgent, systemPrompt } from "./agent.ts";
 import { formatModel, type ModelChoice } from "./models.ts";
 import { sessionConfigOptions, changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import type { AcpSelection } from "./acp-state.ts";
 import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
-import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
+import { listSessions, readSessionHeader, SessionLog, type Origin } from "./session-log.ts";
 import { VERSION } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
+import { loadHooks } from "./hook-config.ts";
+import { hookControl } from "./hooks.ts";
+import { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
+export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 
 export interface AcpOptions {
@@ -34,104 +37,6 @@ interface LiveSession {
 type Update = acp.SessionUpdate;
 
 const COMMANDS: acp.AvailableCommand[] = [{ name: "compact", description: "Compact the conversation context" }];
-
-const TOOL_KINDS: Record<string, acp.ToolKind> = { read: "read", write: "edit", edit: "edit", bash: "execute" };
-
-function toolTitle(name: string, args: unknown): string {
-  const input = (args ?? {}) as Record<string, unknown>;
-  const detail = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : "";
-  const line = detail.split("\n")[0] ?? "";
-  return line ? `${name}: ${line.length > 120 ? `${line.slice(0, 117)}...` : line}` : name;
-}
-
-function toolLocations(cwd: string, args: unknown): acp.ToolCallLocation[] | undefined {
-  const path = (args as Record<string, unknown> | undefined)?.path;
-  if (typeof path !== "string") return undefined;
-  return [{ path: isAbsolute(path) ? path : resolve(cwd, path) }];
-}
-
-function resultContent(content: unknown): acp.ToolCallContent[] {
-  if (!Array.isArray(content)) return [];
-  return content.flatMap((block): acp.ToolCallContent[] => {
-    if (block?.type === "text") return [{ type: "content", content: { type: "text", text: block.text } }];
-    if (block?.type === "image") return [{ type: "content", content: { type: "image", data: block.data, mimeType: block.mimeType } }];
-    return [];
-  });
-}
-
-function toolCallStart(cwd: string, id: string, name: string, args: unknown, status: acp.ToolCallStatus): Update {
-  return {
-    sessionUpdate: "tool_call",
-    toolCallId: id,
-    title: toolTitle(name, args),
-    kind: TOOL_KINDS[name] ?? "other",
-    status,
-    rawInput: args,
-    locations: toolLocations(cwd, args),
-  };
-}
-
-function toolCallEnd(id: string, isError: boolean, content: unknown): Update {
-  return { sessionUpdate: "tool_call_update", toolCallId: id, status: isError ? "failed" : "completed", content: resultContent(content) };
-}
-
-export function historyUpdates(cwd: string, messages: AgentMessage[]): Update[] {
-  const updates: Update[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      const blocks = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-      for (const block of blocks) {
-        updates.push({
-          sessionUpdate: "user_message_chunk",
-          content: block.type === "text" ? { type: "text", text: block.text } : { type: "image", data: block.data, mimeType: block.mimeType },
-        });
-      }
-    } else if (message.role === "assistant") {
-      for (const block of message.content) {
-        if (block.type === "text" && block.text) updates.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: block.text } });
-        else if (block.type === "thinking" && block.thinking) updates.push({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: block.thinking } });
-        else if (block.type === "toolCall") {
-          updates.push(toolCallStart(cwd, block.id, block.name, block.arguments, message.stopReason === "toolUse" ? "pending" : "failed"));
-        }
-      }
-      if (message.stopReason === "error" && message.errorMessage) {
-        updates.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n[model error: ${message.errorMessage}]` } });
-      }
-    } else if (message.role === "toolResult") {
-      updates.push(toolCallEnd(message.toolCallId, message.isError, message.content));
-    }
-  }
-  return updates;
-}
-
-export function eventUpdates(cwd: string, event: AgentEvent): Update[] {
-  if (event.type === "message_update") {
-    const inner = event.assistantMessageEvent;
-    if (inner.type === "text_delta") return [{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: inner.delta } }];
-    if (inner.type === "thinking_delta") return [{ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: inner.delta } }];
-    return [];
-  }
-  if (event.type === "tool_execution_start") return [toolCallStart(cwd, event.toolCallId, event.toolName, event.args, "in_progress")];
-  if (event.type === "tool_execution_end") return [toolCallEnd(event.toolCallId, event.isError, event.result?.content)];
-  if (event.type === "tool_execution_update") return [{ sessionUpdate: "tool_call_update", toolCallId: event.toolCallId, status: "in_progress", content: resultContent(event.partialResult.content) }];
-  return [];
-}
-
-export function promptInput(blocks: acp.ContentBlock[]): { text: string; images: ImageContent[] } {
-  const parts: string[] = [];
-  const images: ImageContent[] = [];
-  for (const block of blocks) {
-    if (block.type === "text") parts.push(block.text);
-    else if (block.type === "image") images.push({ type: "image", data: block.data, mimeType: block.mimeType });
-    else if (block.type === "resource_link") parts.push(`[${block.name}](${block.uri})`);
-    else if (block.type === "resource") {
-      const resource = block.resource;
-      if ("text" in resource) parts.push(`<resource uri="${resource.uri}">\n${resource.text}\n</resource>`);
-      else parts.push(`[binary resource ${resource.uri} omitted]`);
-    } else throw acp.RequestError.invalidParams(undefined, `unsupported prompt content: ${block.type}`);
-  }
-  return { text: parts.join("\n\n"), images };
-}
 
 function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReason {
   if (cancelled) return "cancelled";
@@ -180,7 +85,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
     let choice: ModelChoice;
     let prompt: string;
     try {
@@ -190,6 +95,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     } catch (error) {
       throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
     }
+    const hooks = loadHooks(options.home);
     const selection: AcpSelection = { ...choice, fast: false };
     const supported = getSupportedThinkingLevels(selection.model);
     if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
@@ -198,11 +104,12 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     try {
       signal.throwIfAborted();
-      const { log, messages, history = messages, usageMessages = messages } = start();
-      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools });
+      const { log, messages, history = messages, usageMessages = messages, origins } = start();
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
+      await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, running: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
-      return { live, history, usageMessages, configuration };
+      return { live, history, usageMessages, origins, configuration };
     } catch (error) {
       await mcp.close();
       throw error;
@@ -256,11 +163,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       opening.add(params.sessionId);
       if (previous) previous.configuring = true;
       try {
-        const { live, history, usageMessages, configuration } = await open(cwd, () => SessionLog.open(options.home, params.sessionId), params.mcpServers, signal);
+        const { live, history, usageMessages, origins, configuration } = await open(cwd, () => {
+          const loaded = SessionLog.open(options.home, params.sessionId);
+          return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
+        }, params.mcpServers, signal);
         live.configuring = true;
         try {
           await previous?.mcp.close();
-          for (const update of historyUpdates(cwd, history)) {
+          for (const update of historyUpdates(cwd, history, origins)) {
             await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
           }
           const usage = latestUsageUpdate(usageMessages, live.selection.model);
@@ -327,6 +237,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         return pending;
       });
       const unsubscribeCompaction = control.subscribe((event) => notify(compactionUpdate(event, compactionSupported, live.cancelled)));
+      const unsubscribeHooks = hookControl(live.agent)?.subscribe(({ text }) => notify({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${text}\n` } }));
       const onClose = () => {
         live.cancelled = true;
         abort();
@@ -353,13 +264,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           await Promise.all([live.agent.waitForIdle(), control.waitForIdle()]);
           unsubscribe();
           unsubscribeCompaction();
+          unsubscribeHooks?.();
           await pending;
         } finally {
           signal.removeEventListener("abort", onClose);
           live.running = false;
         }
       }
-      return { stopReason: manual ? (live.cancelled ? "cancelled" : "end_turn") : stopReason(live.agent.state.messages, live.cancelled) };
+      return { stopReason: (manual || hookControl(live.agent)?.rejected) ? (live.cancelled ? "cancelled" : "end_turn") : stopReason(live.agent.state.messages, live.cancelled) };
     })
     .onNotification(acp.methods.agent.session.cancel, ({ params }) => {
       const live = sessions.get(params.sessionId);

@@ -56,7 +56,7 @@ under the rules in [rx-agent](#rx-agent).
 | Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
-| `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json`, `mcp.json`, and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
+| `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json`, `mcp.json`, `hooks.json`, and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
 | `~/.recall/rx-agent/install.toml`, `install.lock`, `versions/` | Rx | Selected version, installation refusal, last update check, and verified release directories. Malformed state fails closed when management is used. |
 | Hosted state | host caller | Rx-internal runtime state only (catalog cache); harness homes are never redirected into it; never an installation root. |
 
@@ -149,6 +149,11 @@ MCP startup belongs to rx-agent under RX-MCP-001. It connects servers in paralle
 skips failed servers, and reports sanitized warnings in CLI and ACP sessions.
 The launcher preserves the same environment-only handoff under RX-AGENT-002/003.
 It never reads or repairs the user-owned MCP configuration.
+
+User command hooks belong to rx-agent under RX-HOOK-001 in its own contract.
+The launcher never reads or writes `$RX_HOME/hooks.json`.
+Hook execution starts after exec and preserves RX-AGENT-001..003.
+See the [hook contract](../agent/docs/hooks.md).
 
 ## Adding a harness
 

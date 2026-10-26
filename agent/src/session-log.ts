@@ -367,7 +367,7 @@ export function listSessions(home: string, cwd?: string): SessionInfo[] {
       const [first, ...rest] = readLog(path).values;
       const header = readHeader(path, first);
       if (cwd && header.cwd !== cwd) continue;
-      const firstUser = sessionRecords(rest, path).entries.map((entry) => entry.message).find((m) => m?.role === "user");
+      const firstUser = sessionRecords(rest, path).entries.find((entry) => entry.origin !== "rx" && entry.message.role === "user")?.message;
       const title = (firstUser && userText(firstUser)?.replace(/\s+/g, " ").trim().slice(0, 80)) || "(empty)";
       sessions.push({ id, cwd: header.cwd, createdAt: header.createdAt, updatedAt: statSync(path).mtime.toISOString(), title });
     } catch (error) {
