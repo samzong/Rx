@@ -139,6 +139,9 @@ RX-AGENT-002/003 continue to supply endpoint-scoped model metadata and context w
 An API name does not establish native provider compaction support.
 Summary requests use the selected agent model and endpoint without a second credential route.
 Versioned checkpoints stay in the agent's append-only v1 session log.
+Summary usage uses additive v1 message fields under the [session log contract](../agent/docs/session-log.md).
+Initial CLI prompts follow the [agent CLI contract](../agent/docs/cli.md).
+The launcher preserves prompt arguments and `--` through the same request, install, plan, configuration, and exec path.
 Older Rx readers ignore checkpoints and replay the complete history, which can overflow again.
 This downgrade preserves the original records but does not preserve compaction behavior.
 
