@@ -12,7 +12,7 @@ import { formatModel, parseThinking, resolveModel, type ModelChoice } from "./mo
 import { applyHandoff, parseHandoff, PROVIDER_ENV } from "./rx-provider.ts";
 import { listSessions, readSessionHeader, SessionLog } from "./session-log.ts";
 import { runPrint, runRepl } from "./terminal.ts";
-import { VERSION } from "./version.ts";
+import { VERSION, VERSION_TEXT } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
 
 const HELP = `rx-agent ${VERSION} - the Rx coding agent
@@ -78,7 +78,7 @@ async function main(argv: string[]): Promise<number> {
     },
   });
   if (values.help || values.version) {
-    process.stdout.write(values.help ? HELP : `${VERSION}\n`);
+    process.stdout.write(values.help ? HELP : `${VERSION_TEXT}\n`);
     return 0;
   }
 

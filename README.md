@@ -133,6 +133,10 @@ make build
 
 `make install` installs `rx`, its seven shortcuts, and the single-file `rx-agent`
 binary compiled by `bun build --compile` into the Cargo bin directory.
+`rx --version`, `rxa --version`, and `rx-agent --version` then add the source
+commit and its date, for example `rx 0.2.0 (1afb9fcbd 2026-10-26)`; an
+uncommitted tree adds `dirty` and the build time. Release binaries and plain
+`cargo build` print only the version.
 `make agent-check` audits, type-checks, and tests `agent/`.
 Shell completions are available through `rx completions bash|zsh|fish`.
 The GitHub release workflow builds the four supported targets from the checked tag.

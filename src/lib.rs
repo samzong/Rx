@@ -49,7 +49,10 @@ fn run_with(raw_args: Vec<OsString>, paths: &Paths, env: &EnvLookup) -> Result<(
             Ok(())
         }
         Command::Version => {
-            println!("rx {RELEASE_VERSION}");
+            match option_env!("RX_BUILD") {
+                Some(build) => println!("rx {RELEASE_VERSION} ({build})"),
+                None => println!("rx {RELEASE_VERSION}"),
+            }
             Ok(())
         }
         Command::Providers(command) => providers::run(command, paths, env),
