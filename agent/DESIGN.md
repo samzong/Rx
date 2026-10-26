@@ -151,6 +151,8 @@ SDK timeouts and aborts keep pi-ai's own error message.
 The full RX-COMPACT-001..005 contracts, budgets, and rationale are in
 [Context compaction](docs/context-compaction.md).
 
+The `read` tool returns local images under the [image read contract](docs/read-images.md).
+
 [Distribution](docs/distribution.md)
 
 ## Change authority
