@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { uuidv7, type ToolResultMessage } from "@earendil-works/pi-ai";
+import { uuidv7, type AssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CompactionCheckpoint } from "./context-control.ts";
 import { isAlive, tryLink } from "./pid-lock.ts";
 
@@ -21,6 +21,7 @@ interface MessageEntry {
   type: "message";
   at: string;
   origin: Origin;
+  purpose?: "compaction";
   message: AgentMessage;
 }
 
@@ -267,8 +268,8 @@ export class SessionLog {
     const header = readHeader(path, first);
     const log = new SessionLog(home, header.id, header.cwd, header.createdAt);
     const { entries, checkpoint } = sessionRecords(rest, path);
-    const history = entries.map((entry) => entry.message);
-    const usageMessages = history.slice(checkpoint?.through ?? 0);
+    const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
+    const usageMessages = entries.slice(checkpoint?.through ?? 0).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const messages = checkpoint ? [...checkpointMessages(checkpoint), ...usageMessages] : [...history];
     const dangling = danglingToolCalls(history);
     const activeCalls = new Set(danglingToolCalls(usageMessages).map((call) => call.id));
@@ -308,6 +309,15 @@ export class SessionLog {
     const entry: MessageEntry = { type: "message", at: new Date().toISOString(), origin, message };
     this.appendRecord(entry);
     return entry;
+  }
+
+  appendCompactionUsage(response: AssistantMessage): void {
+    if (![response.usage.input, response.usage.output, response.usage.cacheRead, response.usage.cacheWrite].some((tokens) => tokens > 0)) return;
+    const message: AssistantMessage = {
+      role: "assistant", content: [], api: response.api, provider: response.provider, model: response.model,
+      usage: response.usage, stopReason: response.stopReason, timestamp: response.timestamp,
+    };
+    this.appendRecord({ type: "message", at: new Date().toISOString(), origin: "model", purpose: "compaction", message });
   }
 
   appendCheckpoint(summary: string, retained: AgentMessage[]): CompactionCheckpoint {

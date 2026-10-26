@@ -77,6 +77,8 @@ its own `$RX_HOME/config.json`.
 
 ```bash
 rxa                          # interactive session
+rxa "Read notes.txt"
+rxa -- "-review this change"
 rxa -p "..."                 # one prompt, then exit
 rxa -c                       # continue the latest session here
 rxa sessions                 # list sessions

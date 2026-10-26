@@ -69,7 +69,7 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
   return stop === "error" || stop === "aborted" ? 1 : 0;
 }
 
-export async function runRepl(agent: Agent, banner: string): Promise<void> {
+export async function runRepl(agent: Agent, banner: string, initialPrompt?: string): Promise<void> {
   stderr.write(dim(`${banner}\nmodel ${formatModel(agent.state.model)} · thinking ${agent.state.thinkingLevel} · Ctrl-C aborts a turn, Ctrl-D exits\n`));
   const control = contextControl(agent);
   const rl = createInterface({ input: stdin, output: stdout });
@@ -93,6 +93,14 @@ export async function runRepl(agent: Agent, banner: string): Promise<void> {
     if (!manual) renderCompaction(event);
   });
   try {
+    if (initialPrompt !== undefined) {
+      running = true;
+      try {
+        await agent.prompt(initialPrompt);
+      } finally {
+        running = false;
+      }
+    }
     for (;;) {
       let line: string;
       try {

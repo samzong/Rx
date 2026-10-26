@@ -223,6 +223,7 @@ export function installContextControl(agent: Agent, models: Models, log: Session
               }
             }
             const completed = await response.result();
+            log.appendCompactionUsage(completed);
             if (exceeded || completed.usage.output > budget.summary) throw new Error("The context summary exceeded its output budget");
             const failure = transport.takeFailure();
             summarySignal.throwIfAborted();

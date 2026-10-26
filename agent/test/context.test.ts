@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, fauxAssistantMessage, fauxToolCall, type AssistantMessage } from "@earendil-works/pi-ai";
 import { createRxAgent } from "../src/agent.ts";
 import { contextControl, type CompactionEvent } from "../src/context-control.ts";
 import { contextBudget, MAX_SUMMARY_CALLS, messageTokens, textTokens, visibleMessage } from "../src/context.ts";
@@ -26,6 +26,41 @@ const summary = () => fauxAssistantMessage("Goal: fix A. Do not edit secret.txt.
 function records(log: SessionLog): any[] {
   return readFileSync(log.path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }
+
+test("every measured summary response is logged before success, failure, output rejection, or cancellation", async (t) => {
+  for (const outcome of ["stop", "error", "length", "aborted", "over-budget", "cancel"] as const) {
+    const { agent, models, control, log } = setup(16384, history());
+    const original = structuredClone(agent.state.messages);
+    const response = { ...summary(), stopReason: outcome === "over-budget" || outcome === "cancel" ? "stop" as const : outcome };
+    response.usage = { ...response.usage, input: 123, output: outcome === "over-budget" ? 10000 : 12, cacheRead: 30, cacheWrite: 4, totalTokens: 169 };
+    t.mock.method(models, "streamSimple", () => {
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        if (outcome === "cancel") control.abort();
+        if (response.stopReason === "error" || response.stopReason === "aborted") stream.push({ type: "error", reason: response.stopReason, error: response });
+        else stream.push({ type: "done", reason: response.stopReason, message: response });
+        stream.end(response);
+      });
+      return stream;
+    });
+    if (outcome === "stop") await control.compact();
+    else await assert.rejects(control.compact());
+    const entries = records(log);
+    const usage = entries.filter((entry) => entry.purpose === "compaction");
+    assert.equal(usage.length, 1, outcome);
+    assert.equal(usage[0].message.usage.input, 123);
+    assert.equal(usage[0].message.usage.cacheRead, 30);
+    assert.equal(usage[0].message.usage.cacheWrite, 4);
+    assert.deepEqual(usage[0].message.content, []);
+    assert.equal(entries.filter((entry) => entry.type === "compaction").length, outcome === "stop" ? 1 : 0);
+    if (outcome !== "stop") {
+      assert.deepEqual(agent.state.messages.slice(0, original.length), original);
+      const added = agent.state.messages.slice(original.length);
+      assert.equal(added.length, outcome === "cancel" ? 1 : 0);
+      if (outcome === "cancel") assert.ok(added[0]?.role === "assistant" && added[0].stopReason === "aborted");
+    }
+  }
+});
 
 test("small windows reserve actual output room without treating empty history as pressure", async () => {
   for (const window of [8192, 16384]) {
@@ -66,6 +101,7 @@ test("automatic compaction commits before the working request and survives load 
   }));
   await agent.prompt("continue now");
   assert.ok(summaryCalls > 0 && summaryCalls <= MAX_SUMMARY_CALLS);
+  assert.equal(records(log).filter((entry) => entry.purpose === "compaction").length, summaryCalls);
   assert.equal(agent.state.thinkingLevel, "high");
   assert.ok(readFileSync(log.path, "utf8").startsWith(original));
   const loaded = SessionLog.open(log.home, log.id);
@@ -111,7 +147,7 @@ test("an 8K model compacts nonempty history and continues within its smaller bud
   assert.equal((agent.state.messages.at(-1) as AssistantMessage).stopReason, "stop");
 });
 
-test("empty, truncated, tool-calling, and failed summaries leave the log and active history unchanged", async () => {
+test("empty, truncated, tool-calling, and failed summaries preserve history while retaining measured usage", async () => {
   const invalid: AssistantMessage[] = [
     fauxAssistantMessage(""),
     { ...summary(), stopReason: "length" },
@@ -127,7 +163,9 @@ test("empty, truncated, tool-calling, and failed summaries leave the log and act
     const events: CompactionEvent[] = [];
     control.subscribe((event) => events.push(event));
     await assert.rejects(control.compact());
-    assert.equal(readFileSync(log.path, "utf8"), before);
+    assert.ok(readFileSync(log.path, "utf8").startsWith(before));
+    assert.equal(records(log).filter((entry) => entry.type === "compaction").length, 0);
+    assert.deepEqual(SessionLog.open(log.home, log.id).history, JSON.parse(active).filter((message: AgentMessage) => message.role !== "system"));
     assert.equal(JSON.stringify(agent.state.messages), active);
     assert.equal(events.at(-1)?.status, "failed");
     assert.equal(faux.state.callCount, 1);
@@ -227,7 +265,9 @@ test("a checkpoint append failure cannot install an in-memory summary", async (t
   t.mock.method(log, "appendCheckpoint", () => { throw new Error("Checkpoint write failed"); });
   await assert.rejects(control.compact(), /Checkpoint write failed/);
   assert.equal(JSON.stringify(agent.state.messages), before);
-  assert.equal(readFileSync(log.path, "utf8"), bytes);
+  assert.ok(readFileSync(log.path, "utf8").startsWith(bytes));
+  assert.equal(records(log).filter((entry) => entry.type === "compaction").length, 0);
+  assert.deepEqual(SessionLog.open(log.home, log.id).history, JSON.parse(before).filter((message: AgentMessage) => message.role !== "system"));
 });
 
 test("Stop reaches an active summary model request and a late Stop preserves a committed checkpoint", async () => {

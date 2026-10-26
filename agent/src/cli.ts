@@ -18,7 +18,8 @@ import { connectMcp, type McpConnection } from "./mcp.ts";
 const HELP = `rx-agent ${VERSION} - the Rx coding agent
 
 Usage:
-  rx-agent [options]               start an interactive session in the current directory
+  rx-agent [options] [prompt...]    start an interactive session with an optional first prompt
+  rx-agent [options] -- <prompt...> treat the prompt as text, including command names and leading -
   rx-agent -p <prompt> [options]   run one prompt and exit
   rx-agent acp                     serve the Agent Client Protocol on stdio
   rx-agent models                  list models that have credentials
@@ -61,9 +62,10 @@ function onTerminate(stop: () => Promise<unknown>): void {
 }
 
 async function main(argv: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({
+  const { values, positionals, tokens } = parseArgs({
     args: argv,
     allowPositionals: true,
+    tokens: true,
     options: {
       print: { type: "string", short: "p" },
       model: { type: "string", short: "m" },
@@ -82,15 +84,18 @@ async function main(argv: string[]): Promise<number> {
 
   const home = rxHome();
   const config = loadConfig(home);
-  const command = positionals[0];
+  const first = tokens.find((token) => token.kind === "positional");
+  const literal = first && tokens.some((token) => token.kind === "option-terminator" && token.index < first.index);
+  const command = !literal && ["login", "logout", "acp", "models", "sessions"].includes(positionals[0] ?? "") ? positionals[0] : undefined;
   const auth = command === "login" || command === "logout";
   if (
-    positionals.length > (auth ? 2 : 1) ||
-    (command && !auth && !["acp", "models", "sessions"].includes(command)) ||
+    (command && positionals.length > (auth ? 2 : 1)) ||
     (command === "logout" && positionals.length < 2)
   ) {
     throw new Error(command === "logout" && positionals.length < 2 ? "logout needs a provider; see rx-agent --help" : `unexpected argument "${positionals.at(-1)}"; see rx-agent --help`);
   }
+  const initialPrompt = command || !positionals.length ? undefined : positionals.join(" ");
+  if (values.print !== undefined && initialPrompt !== undefined) throw new Error("use either -p or an interactive prompt, not both; see rx-agent --help");
 
   registerBunOAuthFlows();
   const handoff = auth ? undefined : process.env[PROVIDER_ENV];
@@ -184,7 +189,7 @@ async function main(argv: string[]): Promise<number> {
     const banner = loaded
       ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
       : `rx ${VERSION} · session ${log.id}`;
-    await runRepl(agent, banner);
+    await runRepl(agent, banner, initialPrompt);
     return 0;
   } finally {
     await mcp.close();

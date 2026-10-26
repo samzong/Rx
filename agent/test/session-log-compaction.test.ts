@@ -8,9 +8,38 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxText, fauxToolCall, type UserMessage } from "@earendil-works/pi-ai";
 import type { CompactionCheckpoint } from "../src/context-control.ts";
 import { checkpointMessages, INTERRUPTED_TOOL_TEXT, listSessions, SessionLog } from "../src/session-log.ts";
-import { foreignSession, tempDir } from "./helpers.ts";
+import { fauxModels, foreignSession, tempDir } from "./helpers.ts";
+import { latestUsageUpdate } from "../src/acp-usage.ts";
 
 const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: Date.now() });
+
+test("compaction usage remains in raw positions without entering history or working measurements", () => {
+  const log = SessionLog.create(tempDir(), "/work");
+  const { model } = fauxModels();
+  const first = user("original request");
+  log.append("cli", first);
+  const response = { ...fauxAssistantMessage("private summary"), api: model.api, provider: model.provider, model: model.id };
+  response.usage = { ...response.usage, input: 101, output: 11, totalTokens: 112 };
+  log.appendCompactionUsage(response);
+  const checkpoint = log.appendCheckpoint("Recorded work", []);
+  assert.equal(checkpoint.through, 2);
+  const next = user("continue");
+  const answer = { ...response, content: [{ type: "text" as const, text: "working answer" }], usage: { ...response.usage, input: 7, output: 3, totalTokens: 10 } };
+  log.append("cli", next);
+  log.append("model", answer);
+  log.appendCompactionUsage({ ...response, stopReason: "error" });
+  const loaded = SessionLog.open(log.home, log.id);
+  assert.equal(loaded.log.messageCount, 5);
+  assert.equal(loaded.entries.length, 5);
+  assert.deepEqual(loaded.history, [first, next, answer]);
+  assert.deepEqual(loaded.usageMessages, [next, answer]);
+  assert.deepEqual(loaded.messages, [...checkpointMessages(checkpoint), next, answer]);
+  assert.deepEqual(latestUsageUpdate(loaded.usageMessages, model), { sessionUpdate: "usage_update", used: 10, size: model.contextWindow });
+  const usage = loaded.entries.filter((entry) => entry.purpose === "compaction");
+  assert.equal(usage.length, 2);
+  assert.ok(usage.every((entry) => entry.origin === "model" && entry.message.role === "assistant" && entry.message.content.length === 0));
+  assert.doesNotMatch(readFileSync(log.path, "utf8"), /private summary/);
+});
 
 test("checkpoints project only the latest summary, retained messages, and subsequent raw messages", () => {
   const home = tempDir();
