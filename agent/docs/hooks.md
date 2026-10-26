@@ -2,7 +2,7 @@
 
 This document owns RX-HOOK-001 in the [agent design contract](../DESIGN.md).
 A hook runs a user command at a session or tool boundary.
-It can check an action, reject it before execution, or provide context.
+It can check an action, reject it before execution, replace tool input, or provide context.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ Use native names: `read`, `write`, `edit`, `bash`, or the discovered `mcp__...` 
 | --- | --- | --- |
 | SessionStart | Once after session opening, before its first model request. | Queue context for the next accepted prompt. A failure rejects opening. |
 | UserPromptSubmit | Once per external prompt, before transcript acceptance or model access. | Reject the prompt or provide context. Internal summaries and continuations do not trigger it. |
-| PreToolUse | After schema validation, before local or MCP execution. | Reject this call or provide context. Peer calls remain independent. |
+| PreToolUse | After schema validation, before local or MCP execution. | Reject this call, replace its input, or provide context. Peer calls remain independent. |
 | PostToolUse | After an executed successful tool, before its final result. | Provide context or report failed validation. Preserve the completed output and side effects. |
 | PostToolUseFailure | After an executed failed tool. | Receive the error and provide context or feedback. Denied and invalid calls never trigger a post event. |
 | Stop | Once after normal external prompt completion and log flush. | Observe completion and report a final-check failure. Never continue the model. |
@@ -87,8 +87,9 @@ Rx never supplies a fabricated Claude or Codex transcript or permission mode.
 
 Tool input retains the Rx schema.
 For example, `bash.timeout` uses seconds, and file tools use `path`, `old_text`, and `new_text`.
-Hooks cannot rewrite arguments by returning new input or mutating the received JSON.
-ACP shows the same requested input that the tool executes.
+Mutating the received JSON has no effect.
+Only PreToolUse can replace tool input, through `updatedInput` described below.
+Post events receive the input that the tool executed.
 
 ## Command output
 
@@ -112,6 +113,27 @@ This pre-tool response rejects one call:
 }
 ```
 
+This pre-tool response replaces the input of one call:
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecisionReason": "RTK auto-rewrite",
+    "updatedInput": { "command": "rtk git status", "timeout": 30 }
+  }
+}
+```
+
+`updatedInput` must be an object and replaces the whole input. Rx does not merge missing fields.
+Rx validates each replacement against the tool schema, with the same conversion as model input.
+The next handler receives the validated replacement as `tool_input`.
+The tool executes the final replacement only after every handler passes.
+A rejection, invalid replacement, command failure, timeout, or cancellation blocks the call.
+Later handlers do not run, and the original input never executes as a fallback.
+`permissionDecisionReason` without `permissionDecision` is accepted only with `updatedInput`, as an explanation.
+A replacement from a denying handler is ignored because the call is blocked.
+
 `permissionDecision: "allow"` means only that this hook has no objection.
 It does not grant permission beyond the existing tool policy.
 `hookSpecificOutput.hookEventName` must match the event.
@@ -126,7 +148,7 @@ SessionStart failure rejects opening. Stop failure reports a final-check error.
 Other nonzero exits, timeout, output overflow, and protocol errors use the same event-specific failure behavior.
 Rx does not retry failed commands.
 
-Unsupported controls include `ask`, `updatedInput`, `updatedToolOutput`, `updatedMCPToolOutput`, and `async`.
+Unsupported controls include `ask`, `updatedInput` outside PreToolUse, `updatedToolOutput`, `updatedMCPToolOutput`, and `async`.
 Stop cannot return context or request continuation.
 An unsupported response fails explicitly instead of silently changing meaning.
 Generic diagnostic output must not contain credentials.
@@ -159,15 +181,20 @@ Tool context enters the next model request through pi core's normal message path
 Post-check feedback appends to the final toolResult and preserves its original content.
 A failed post-check sets `isError: true`.
 The adapter catches hook errors itself so core cannot replace the original tool result.
+A replaced input appends one `toolInput` record with the `toolCallId` before execution.
+The assistant message keeps the model's original arguments.
 
 CLI and ACP consume those same final results.
 ACP emits a failed tool update with the original toolCallId and a readable reason.
+A replaced input updates the title and `rawInput` of the same toolCallId before execution.
+The CLI does not display replaced input.
 A denied tool normally returns `end_turn` after the model responds.
 Only cancellation returns `cancelled`.
 A rejected prompt produces an agent notice, accepts no user record, and makes no model request.
 Stop errors produce a visible notice without a new turn.
 
 Resume replays labeled hook context and finalized results without rerunning historical hooks or tools.
+ACP history shows the replaced input for each tool call that has a `toolInput` record.
 The new SessionStart event still runs once with `source: "resume"`.
 Its new context waits for the next accepted prompt.
 ACP history presents `rx` context as labeled agent notices, not user-authored text.

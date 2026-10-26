@@ -133,7 +133,10 @@ test("JSON context preserves content on context-capable events", () => {
 });
 
 test("pre-tool deny wins over allow and no-op controls", () => {
-  assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: {} } }));
+  assert.throws(() => json("PostToolUse", { hookSpecificOutput: { hookEventName: "PostToolUse", updatedInput: {} } }));
+  assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: "rtk git status" } }));
+  assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecisionReason: "RTK auto-rewrite", updatedInput: { command: "rtk git status" } } }), { blocked: false, updatedInput: { command: "rtk git status" } });
+  assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "denied", updatedInput: { command: "x" } } }), { blocked: true, reason: "denied" });
   assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "guard denied" }, continue: true }), { blocked: true, reason: "guard denied" });
   assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }), { blocked: false });
   assert.deepEqual(json("PreToolUse", { decision: "block", reason: "blocked check", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }), { blocked: true, reason: "blocked check" });

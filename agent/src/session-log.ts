@@ -25,6 +25,13 @@ interface MessageEntry {
   message: AgentMessage;
 }
 
+interface ToolInputEntry {
+  type: "toolInput";
+  at: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+}
+
 export interface SessionInfo {
   id: string;
   cwd: string;
@@ -39,6 +46,7 @@ export interface LoadedSession {
   messages: AgentMessage[];
   history: AgentMessage[];
   usageMessages: AgentMessage[];
+  inputs: Map<string, Record<string, unknown>>;
   repaired: number;
 }
 
@@ -178,18 +186,23 @@ function validateCheckpoint(value: unknown, through: number, location: string): 
   }
 }
 
-function sessionRecords(values: unknown[], path: string): { entries: MessageEntry[]; checkpoint?: CompactionCheckpoint } {
+function sessionRecords(values: unknown[], path: string): { entries: MessageEntry[]; checkpoint?: CompactionCheckpoint; inputs: Map<string, Record<string, unknown>> } {
   const entries: MessageEntry[] = [];
+  const inputs = new Map<string, Record<string, unknown>>();
   let checkpoint: CompactionCheckpoint | undefined;
   for (const [index, value] of values.entries()) {
     if (!record(value)) continue;
     if (value.type === "message") entries.push(value as unknown as MessageEntry);
+    if (value.type === "toolInput") {
+      if (typeof value.toolCallId !== "string" || !record(value.input)) throw new Error(`${path}:${index + 2}: invalid tool input record`);
+      inputs.set(value.toolCallId, value.input);
+    }
     if (value.type === "compaction") {
       validateCheckpoint(value, entries.length, `${path}:${index + 2}`);
       checkpoint = value;
     }
   }
-  return { entries, checkpoint };
+  return { entries, checkpoint, inputs };
 }
 
 export function checkpointMessages(checkpoint: CompactionCheckpoint): AgentMessage[] {
@@ -267,7 +280,7 @@ export class SessionLog {
     const [first, ...rest] = values;
     const header = readHeader(path, first);
     const log = new SessionLog(home, header.id, header.cwd, header.createdAt);
-    const { entries, checkpoint } = sessionRecords(rest, path);
+    const { entries, checkpoint, inputs } = sessionRecords(rest, path);
     const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const usageMessages = entries.slice(checkpoint?.through ?? 0).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const messages = checkpoint ? [...checkpointMessages(checkpoint), ...usageMessages] : [...history];
@@ -302,13 +315,17 @@ export class SessionLog {
       history.push(result);
       usageMessages.push(result);
     }
-    return { log, entries, messages, history, usageMessages, repaired: dangling.length };
+    return { log, entries, messages, history, usageMessages, inputs, repaired: dangling.length };
   }
 
   append(origin: Origin, message: AgentMessage): MessageEntry {
     const entry: MessageEntry = { type: "message", at: new Date().toISOString(), origin, message };
     this.appendRecord(entry);
     return entry;
+  }
+
+  appendToolInput(toolCallId: string, input: Record<string, unknown>): void {
+    this.appendRecord({ type: "toolInput", at: new Date().toISOString(), toolCallId, input });
   }
 
   appendCompactionUsage(response: AssistantMessage): void {
@@ -336,7 +353,7 @@ export class SessionLog {
     return checkpoint;
   }
 
-  private appendRecord(entry: MessageEntry | CompactionCheckpoint): void {
+  private appendRecord(entry: MessageEntry | CompactionCheckpoint | ToolInputEntry): void {
     const line = `${JSON.stringify(entry)}\n`;
     const size = statSync(this.path).size;
     try {

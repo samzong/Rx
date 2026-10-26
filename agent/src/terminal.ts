@@ -56,7 +56,9 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
   const control = contextControl(agent);
   const unsubscribe = agent.subscribe((event) => render(event, false));
   const unsubscribeCompaction = control.subscribe(renderCompaction);
-  const unsubscribeHooks = hookControl(agent)?.subscribe(({ text }) => stderr.write(`${text}\n`));
+  const unsubscribeHooks = hookControl(agent)?.subscribe((notice) => {
+    if ("text" in notice) stderr.write(`${notice.text}\n`);
+  });
   const onSigint = () => {
     agent.abort();
     control.abort();
@@ -96,7 +98,9 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
     if (running) abort();
   });
   const unsubscribe = agent.subscribe((event) => render(event, true));
-  const unsubscribeHooks = hookControl(agent)?.subscribe(({ text }) => stderr.write(`${text}\n`));
+  const unsubscribeHooks = hookControl(agent)?.subscribe((notice) => {
+    if ("text" in notice) stderr.write(`${notice.text}\n`);
+  });
   const unsubscribeCompaction = control.subscribe((event) => {
     if (!manual) renderCompaction(event);
   });

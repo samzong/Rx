@@ -73,6 +73,50 @@ test("pre denial and post failure preserve per-call execution, output, status, a
   });
 });
 
+test("chained pre rewrites are revalidated, executed, logged, shown on the same ACP card, and replayed", async () => {
+  const { home, cwd, records } = setup(["PreToolUse", "PostToolUse"], `
+    const rewrites={'echo ORIGINAL':{command:'echo REWRITTEN',timeout:'5'},'touch blocked':{}};
+    const updatedInput=input.hook_event_name==='PreToolUse'?rewrites[input.tool_input.command]:undefined;
+    if(updatedInput) console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecisionReason:'rewrite',updatedInput}}));
+  `);
+  const configuration = JSON.parse(readFileSync(join(home, "hooks.json"), "utf8"));
+  configuration.hooks.PreToolUse[0].hooks.push(configuration.hooks.PreToolUse[0].hooks[0]);
+  writeFileSync(join(home, "hooks.json"), JSON.stringify(configuration));
+  const effective = { command: "echo REWRITTEN", timeout: 5 };
+  const { faux, models, model } = fauxModels();
+  faux.setResponses([
+    fauxAssistantMessage([
+      fauxToolCall("bash", { command: "echo ORIGINAL" }, { id: "rewrite" }),
+      fauxToolCall("bash", { command: "touch blocked" }, { id: "invalid" }),
+    ], { stopReason: "toolUse" }),
+    fauxAssistantMessage("done"),
+  ]);
+  const updates: acp.SessionUpdate[] = [];
+  const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
+  const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
+  await client.connectWith(app, async (ctx) => {
+    const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
+    await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "rewrite" }] });
+    const rewritten = records().filter((entry) => entry.tool_use_id === "rewrite");
+    assert.deepEqual(rewritten.map((entry) => [entry.hook_event_name, entry.tool_input]), [["PreToolUse", { command: "echo ORIGINAL" }], ["PreToolUse", effective], ["PostToolUse", effective]]);
+    assert.deepEqual(records().filter((entry) => entry.tool_use_id === "invalid").map((entry) => entry.hook_event_name), ["PreToolUse"]);
+    assert.equal(existsSync(join(cwd, "blocked")), false);
+    const loaded = SessionLog.open(home, sessionId);
+    const results = loaded.messages.filter((message) => message.role === "toolResult");
+    assert.match(JSON.stringify(results[0]?.content), /REWRITTEN/);
+    assert.doesNotMatch(JSON.stringify(results[0]?.content), /ORIGINAL/);
+    assert.equal(results[1]?.isError, true);
+    assert.match(JSON.stringify(loaded.messages), /"arguments":\{"command":"echo ORIGINAL"\}/);
+    assert.deepEqual([...loaded.inputs], [["rewrite", effective]]);
+    assert.ok(updates.some((update) => update.sessionUpdate === "tool_call_update" && update.toolCallId === "rewrite" && update.title?.includes("REWRITTEN") && JSON.stringify(update.rawInput) === JSON.stringify(effective)));
+    const count = records().length;
+    updates.length = 0;
+    await ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+    assert.equal(records().length, count);
+    assert.ok(updates.some((update) => update.sessionUpdate === "tool_call" && update.toolCallId === "rewrite" && JSON.stringify(update.rawInput) === JSON.stringify(effective)));
+  });
+});
+
 test("hook contexts have rx origin, enter the model once, and replay as labeled agent notices", async () => {
   const { home, cwd, records } = setup(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"], `
     console.log(JSON.stringify({hookSpecificOutput:{hookEventName:input.hook_event_name,additionalContext:'CONTEXT_'+input.hook_event_name}}));
@@ -139,7 +183,9 @@ test("Stop failure is observable without continuing the model or changing comple
   const log = SessionLog.create(home, cwd);
   const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: "test", log, origin: "cli", hooks: loadHooks(home) });
   const notices: string[] = [];
-  hookControl(agent)!.subscribe(({ text }) => notices.push(text));
+  hookControl(agent)!.subscribe((notice) => {
+    if ("text" in notice) notices.push(notice.text);
+  });
   await hookControl(agent)!.start("startup");
   await agent.prompt("finish");
   assert.deepEqual(records().map((entry) => entry.hook_event_name), ["Stop"]);

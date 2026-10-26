@@ -1,15 +1,15 @@
 import type { Agent, AgentMessage, AfterToolCallContext, BeforeToolCallContext } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { validateToolArguments } from "@earendil-works/pi-ai";
+import type { AssistantMessage, JsonObject } from "@earendil-works/pi-ai";
 import { parseHookOutput } from "./hook-config.ts";
 import { runHookCommand } from "./hook-runner.ts";
 import { HOOK_OUTPUT_LIMIT } from "./hook-types.ts";
 import type { HookConfiguration, HookEvent, HookInput, HookOutput } from "./hook-types.ts";
 import type { SessionLog } from "./session-log.ts";
 
-export interface HookNotice {
-  event: HookEvent;
-  text: string;
-}
+export type HookNotice =
+  | { event: HookEvent; text: string }
+  | { event: "PreToolUse"; toolCallId: string; toolName: string; input: Record<string, unknown> };
 
 export interface HookControl {
   readonly rejected: boolean;
@@ -52,7 +52,7 @@ export function installHooks(agent: Agent, log: SessionLog, configuration: HookC
     for (const listener of listeners) listener({ event, text: `[Hook ${event}] ${text}` });
   };
 
-  const run = async (event: HookEvent, fields: Partial<HookInput>, signal?: AbortSignal): Promise<HookOutput> => {
+  const run = async (event: HookEvent, fields: Partial<HookInput>, signal?: AbortSignal, revalidate?: (input: Record<string, unknown>) => Record<string, unknown>): Promise<HookOutput> => {
     const controller = new AbortController();
     active.add(controller);
     const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -73,6 +73,7 @@ export function installHooks(agent: Agent, log: SessionLog, configuration: HookC
             result = parseHookOutput(event, await runHookCommand(command, input, combined));
             combined.throwIfAborted();
             if (result.context && Buffer.byteLength([...context, result.context].join("\n")) > HOOK_OUTPUT_LIMIT) throw new Error("Hook context exceeded 64 KiB for this event");
+            if (result.updatedInput && revalidate) output.updatedInput = input.tool_input = revalidate(result.updatedInput);
           } catch (error) {
             result = { blocked: true, reason: combined.aborted ? "Hook cancelled" : error instanceof Error ? error.message : "Hook execution failed" };
           }
@@ -101,10 +102,22 @@ export function installHooks(agent: Agent, log: SessionLog, configuration: HookC
   const toolFields = ({ toolCall, args }: BeforeToolCallContext) => ({ tool_name: toolCall.name, tool_use_id: toolCall.id, tool_input: structuredClone(args) });
 
   agent.beforeToolCall = async (call, signal) => {
-    const output = await run("PreToolUse", toolFields(call), signal);
+    const output = await run("PreToolUse", toolFields(call), signal, (input) => {
+      const tool = call.context.tools?.find((candidate) => candidate.name === call.toolCall.name);
+      if (!tool) throw new Error(`Tool ${call.toolCall.name} not found`);
+      return validateToolArguments(tool, { ...call.toolCall, arguments: input as JsonObject });
+    });
     queue("PreToolUse", output);
     if (output.diagnostic) notice("PreToolUse", output.diagnostic);
-    return output.blocked ? { block: true, reason: `[Hook PreToolUse] ${output.reason}` } : undefined;
+    if (output.blocked) return { block: true, reason: `[Hook PreToolUse] ${output.reason}` };
+    if (output.updatedInput) {
+      log.appendToolInput(call.toolCall.id, output.updatedInput);
+      const args = call.args as Record<string, unknown>;
+      for (const key of Object.keys(args)) delete args[key];
+      Object.assign(args, output.updatedInput);
+      for (const listener of listeners) listener({ event: "PreToolUse", toolCallId: call.toolCall.id, toolName: call.toolCall.name, input: output.updatedInput });
+    }
+    return undefined;
   };
   agent.afterToolCall = async (call: AfterToolCallContext, signal) => {
     const event = call.isError ? "PostToolUseFailure" : "PostToolUse";

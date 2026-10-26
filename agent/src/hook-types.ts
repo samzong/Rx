@@ -36,6 +36,7 @@ export interface HookOutput {
   reason?: string;
   context?: string;
   diagnostic?: string;
+  updatedInput?: Record<string, unknown>;
 }
 
 export interface HookCommandResult {
