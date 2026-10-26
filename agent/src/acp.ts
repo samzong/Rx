@@ -14,7 +14,7 @@ import { VERSION } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
 import { loadHooks } from "./hook-config.ts";
 import { hookControl } from "./hooks.ts";
-import { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
+import { eventUpdates, historyUpdates, promptInput, toolInputUpdate } from "./acp-messages.ts";
 export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 
@@ -85,7 +85,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[] }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>> }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
     let choice: ModelChoice;
     let prompt: string;
     try {
@@ -104,12 +104,12 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     try {
       signal.throwIfAborted();
-      const { log, messages, history = messages, usageMessages = messages, origins } = start();
+      const { log, messages, history = messages, usageMessages = messages, origins, inputs } = start();
       const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, running: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
-      return { live, history, usageMessages, origins, configuration };
+      return { live, history, usageMessages, origins, inputs, configuration };
     } catch (error) {
       await mcp.close();
       throw error;
@@ -163,14 +163,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       opening.add(params.sessionId);
       if (previous) previous.configuring = true;
       try {
-        const { live, history, usageMessages, origins, configuration } = await open(cwd, () => {
+        const { live, history, usageMessages, origins, inputs, configuration } = await open(cwd, () => {
           const loaded = SessionLog.open(options.home, params.sessionId);
           return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
         }, params.mcpServers, signal);
         live.configuring = true;
         try {
           await previous?.mcp.close();
-          for (const update of historyUpdates(cwd, history, origins)) {
+          for (const update of historyUpdates(cwd, history, origins, inputs)) {
             await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
           }
           const usage = latestUsageUpdate(usageMessages, live.selection.model);
@@ -237,7 +237,9 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         return pending;
       });
       const unsubscribeCompaction = control.subscribe((event) => notify(compactionUpdate(event, compactionSupported, live.cancelled)));
-      const unsubscribeHooks = hookControl(live.agent)?.subscribe(({ text }) => notify({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${text}\n` } }));
+      const unsubscribeHooks = hookControl(live.agent)?.subscribe((notice) => notify("text" in notice
+        ? { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${notice.text}\n` } }
+        : toolInputUpdate(live.log.cwd, notice.toolCallId, notice.toolName, notice.input)));
       const onClose = () => {
         live.cancelled = true;
         abort();

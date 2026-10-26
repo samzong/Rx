@@ -43,11 +43,15 @@ function toolCallStart(cwd: string, id: string, name: string, args: unknown, sta
   };
 }
 
+export function toolInputUpdate(cwd: string, id: string, name: string, args: Record<string, unknown>): Update {
+  return { sessionUpdate: "tool_call_update", toolCallId: id, title: toolTitle(name, args), rawInput: args, locations: toolLocations(cwd, args) };
+}
+
 function toolCallEnd(id: string, isError: boolean, content: unknown): Update {
   return { sessionUpdate: "tool_call_update", toolCallId: id, status: isError ? "failed" : "completed", content: resultContent(content) };
 }
 
-export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: Origin[]): Update[] {
+export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: Origin[], inputs?: ReadonlyMap<string, Record<string, unknown>>): Update[] {
   const updates: Update[] = [];
   for (const [index, message] of messages.entries()) {
     if (message.role === "user") {
@@ -63,7 +67,7 @@ export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: 
         if (block.type === "text" && block.text) updates.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: block.text } });
         else if (block.type === "thinking" && block.thinking) updates.push({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: block.thinking } });
         else if (block.type === "toolCall") {
-          updates.push(toolCallStart(cwd, block.id, block.name, block.arguments, message.stopReason === "toolUse" ? "pending" : "failed"));
+          updates.push(toolCallStart(cwd, block.id, block.name, inputs?.get(block.id) ?? block.arguments, message.stopReason === "toolUse" ? "pending" : "failed"));
         }
       }
       if (message.stopReason === "error" && message.errorMessage) {

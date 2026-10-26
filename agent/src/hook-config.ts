@@ -98,12 +98,14 @@ export function parseHookOutput(event: HookEvent, result: HookCommandResult): Ho
   const root = object(parsed, "Hook output");
   fields(root, ["hookSpecificOutput", "decision", "reason", "additionalContext", "continue", "stopReason", "suppressOutput"], "Hook output");
   const specific = root.hookSpecificOutput === undefined ? {} : object(root.hookSpecificOutput, "Hook output hookSpecificOutput");
-  fields(specific, ["hookEventName", "permissionDecision", "permissionDecisionReason", "additionalContext"], "Hook output hookSpecificOutput");
+  fields(specific, ["hookEventName", "permissionDecision", "permissionDecisionReason", "additionalContext", "updatedInput"], "Hook output hookSpecificOutput");
   if (root.hookSpecificOutput !== undefined && specific.hookEventName !== event) throw new Error("Hook output: hookEventName must match the current event");
   if (root.suppressOutput !== undefined && root.suppressOutput !== true) throw new Error("Hook output: only suppressOutput true is supported");
   const reason = stringField(root, "reason");
   const stopReason = stringField(root, "stopReason");
   const permissionReason = stringField(specific, "permissionDecisionReason");
+  const updatedInput = specific.updatedInput === undefined ? undefined : object(specific.updatedInput, "Hook output updatedInput");
+  if (updatedInput && event !== "PreToolUse") throw new Error("Hook output: updatedInput is only supported for PreToolUse");
   if (root.decision !== undefined) {
     if (root.decision !== "block") throw new Error("Hook output: only decision block is supported");
     if (event === "SessionStart" || event === "Stop") throw new Error(`Hook output: ${event} does not support decision block`);
@@ -117,7 +119,7 @@ export function parseHookOutput(event: HookEvent, result: HookCommandResult): Ho
       output.blocked = true;
       output.reason = permissionReason || output.reason || "Hook denied the tool call";
     }
-  } else if (permissionReason !== undefined) throw new Error("Hook output: permissionDecisionReason requires permissionDecision");
+  } else if (permissionReason !== undefined && !updatedInput) throw new Error("Hook output: permissionDecisionReason requires permissionDecision or updatedInput");
   if (root.continue !== undefined) {
     if (typeof root.continue !== "boolean") throw new Error("Hook output: continue must be a boolean");
     if (root.continue === false) {
@@ -129,5 +131,6 @@ export function parseHookOutput(event: HookEvent, result: HookCommandResult): Ho
   if (stopReason !== undefined && root.continue !== false) throw new Error("Hook output: stopReason requires continue false");
   const contexts = [stringField(root, "additionalContext"), stringField(specific, "additionalContext")].filter((entry) => entry !== undefined);
   if (contexts.length) output.context = contextOutput(event, contexts.join("\n"));
+  if (updatedInput && !output.blocked) output.updatedInput = updatedInput;
   return output;
 }
