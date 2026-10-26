@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
+import { HOOK_OUTPUT_LIMIT } from "./hook-types.ts";
 import type { HookCommand, HookCommandResult, HookInput } from "./hook-types.ts";
 
-const OUTPUT_LIMIT_BYTES = 64 * 1024;
 const PIPE_GRACE_MS = 250;
 
 export async function runHookCommand(handler: HookCommand, input: HookInput, signal?: AbortSignal): Promise<HookCommandResult> {
@@ -51,12 +51,12 @@ export async function runHookCommand(handler: HookCommand, input: HookInput, sig
     const onOutputError = () => fail("Hook output could not be read");
     const onStdout = (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > OUTPUT_LIMIT_BYTES) fail("Hook stdout exceeded 64 KiB");
+      if (stdoutBytes > HOOK_OUTPUT_LIMIT) fail("Hook stdout exceeded 64 KiB");
       else stdout.push(chunk);
     };
     const onStderr = (chunk: Buffer) => {
       stderrBytes += chunk.length;
-      if (stderrBytes > OUTPUT_LIMIT_BYTES) fail("Hook stderr exceeded 64 KiB");
+      if (stderrBytes > HOOK_OUTPUT_LIMIT) fail("Hook stderr exceeded 64 KiB");
       else stderr.push(chunk);
     };
     const onExit = () => {

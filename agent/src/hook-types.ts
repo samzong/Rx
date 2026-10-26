@@ -1,3 +1,5 @@
+export const HOOK_OUTPUT_LIMIT = 65_536;
+
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"] as const;
 
 export type HookEvent = typeof HOOK_EVENTS[number];

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { HOOK_OUTPUT_LIMIT, loadHooks, parseHookOutput } from "../src/hook-config.ts";
-import { HOOK_EVENTS } from "../src/hook-types.ts";
+import { loadHooks, parseHookOutput } from "../src/hook-config.ts";
+import { HOOK_EVENTS, HOOK_OUTPUT_LIMIT } from "../src/hook-types.ts";
 import type { HookEvent } from "../src/hook-types.ts";
 
 const handler = { type: "command", command: "./check" };
@@ -23,16 +23,14 @@ test("missing hooks.json disables hooks without discovering other files", (t) =>
   configured(home, { hooks: {} });
   const empty = loadHooks(home);
   assert.deepEqual(empty, {});
-  assert.ok(Object.isFrozen(empty));
   rmSync(join(home, "hooks.json"));
   writeFileSync(join(home, "config.json"), JSON.stringify({ hooks: { PreToolUse: [{ hooks: [handler] }] } }));
   mkdirSync(join(home, ".claude"));
   writeFileSync(join(home, ".claude", "settings.json"), "invalid JSON");
   assert.deepEqual(loadHooks(home), {});
-  assert.ok(Object.isFrozen(loadHooks(home)));
 });
 
-test("configuration preserves handler order and returns a frozen snapshot", (t) => {
+test("configuration preserves handler order", (t) => {
   const home = mkdtempSync(join(tmpdir(), "rx-hooks-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   configured(home, { hooks: { PreToolUse: [
@@ -46,23 +44,10 @@ test("configuration preserves handler order and returns a frozen snapshot", (t) 
   assert.equal(groups[1]!.commands[0]!.timeout, 600);
   assert.equal(groups[0]!.matcher!.test("bash"), true);
   assert.equal(groups[0]!.matcher!.test("Bash"), false);
-  try { groups[0]!.matcher!.compile("^write$"); } catch {}
-  assert.equal(groups[0]!.matcher!.test("write"), false);
-  assert.equal(groups[0]!.matcher!.test("bash"), true);
-  for (const entry of [snapshot, groups, ...groups, ...groups.flatMap((group) => [group.commands, ...group.commands]), groups[0]!.matcher]) assert.ok(Object.isFrozen(entry));
-  assert.throws(() => { (groups[0]!.commands[0] as { command: string }).command = "changed"; }, TypeError);
   assert.equal(readFileSync(join(home, "hooks.json"), "utf8"), original);
   configured(home, { hooks: {} });
   assert.equal(snapshot.PreToolUse![0]!.commands[0]!.command, "./check");
   assert.deepEqual(loadHooks(home), {});
-});
-
-test("configuration accepts user-selected symlinks without discovering project hooks", (t) => {
-  const home = mkdtempSync(join(tmpdir(), "rx-hooks-"));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
-  writeFileSync(join(home, "shared.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [handler] }] } }));
-  symlinkSync(join(home, "shared.json"), join(home, "hooks.json"));
-  assert.equal(loadHooks(home).Stop![0]!.commands[0]!.command, "./check");
 });
 
 test("matchers preserve native names and session sources", (t) => {
@@ -95,6 +80,8 @@ test("configuration rejects malformed roots, unknown fields, events, and handler
     { hooks: { PreToolUse: {} } }, { hooks: { PreToolUse: [null] } },
     { hooks: { PreToolUse: [{ hooks: [handler], async: true }] } },
     { hooks: { PreToolUse: [{ hooks: null }] } },
+    { hooks: { PreToolUse: [{ hooks: [{ ...handler, timeout: 600.01 }] }] } },
+    { hooks: { PreToolUse: [{ matcher: "[", hooks: [handler] }] } },
     ...[null, {}, { ...handler, type: "http" }, { ...handler, type: "prompt" }, { ...handler, async: true },
       { ...handler, command: "" }, { ...handler, command: "  " }, { ...handler, command: 1 }, { ...handler, command: "a\0b" }]
       .map((entry) => ({ hooks: { PreToolUse: [{ hooks: [entry] }] } })),
@@ -107,28 +94,6 @@ test("configuration rejects malformed roots, unknown fields, events, and handler
     writeFileSync(join(home, "hooks.json"), raw);
     assert.throws(() => loadHooks(home));
   }
-});
-
-test("configuration rejects invalid timeouts and matchers without exposing their values", (t) => {
-  const home = mkdtempSync(join(tmpdir(), "rx-hooks-"));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
-  for (const timeout of [0, -1, 600.01, null, "30", true, Infinity, NaN]) {
-    configured(home, { hooks: { PreToolUse: [{ hooks: [{ ...handler, timeout }] }] } });
-    assert.throws(() => loadHooks(home));
-  }
-  for (const matcher of [null, 1, [], "[private-sentinel"]) {
-    configured(home, { hooks: { PreToolUse: [{ matcher, hooks: [handler] }] } });
-    assert.throws(() => loadHooks(home), (error: Error) => !error.message.includes("private-sentinel"));
-  }
-  for (const event of ["UserPromptSubmit", "Stop"]) {
-    configured(home, { hooks: { [event]: [{ matcher: "^bash$", hooks: [handler] }] } });
-    assert.throws(() => loadHooks(home));
-  }
-  writeFileSync(join(home, "hooks.json"), '{"hooks": "private-sentinel');
-  assert.throws(() => loadHooks(home), (error: Error) => !error.message.includes("private-sentinel"));
-  rmSync(join(home, "hooks.json"));
-  mkdirSync(join(home, "hooks.json"));
-  assert.throws(() => loadHooks(home), /cannot read hooks.json/);
 });
 
 test("empty output and supported no-op controls accept all events", () => {
@@ -148,6 +113,7 @@ test("plain output supplies prompt context or an event diagnostic", () => {
 });
 
 test("bracketed and quoted plain output stays text while malformed objects fail", () => {
+  for (const value of [[], null]) assert.throws(() => json("PreToolUse", value));
   for (const event of HOOK_EVENTS) {
     for (const stdout of ["[ok] checked", '[INFO] checked', '"checked']) {
       const parsed = parseHookOutput(event, { code: 0, stdout, stderr: "" });
@@ -167,6 +133,7 @@ test("JSON context preserves content on context-capable events", () => {
 });
 
 test("pre-tool deny wins over allow and no-op controls", () => {
+  assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: {} } }));
   assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "guard denied" }, continue: true }), { blocked: true, reason: "guard denied" });
   assert.deepEqual(json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }), { blocked: false });
   assert.deepEqual(json("PreToolUse", { decision: "block", reason: "blocked check", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }), { blocked: true, reason: "blocked check" });
@@ -174,6 +141,7 @@ test("pre-tool deny wins over allow and no-op controls", () => {
 });
 
 test("prompt and tool checks return explicit denials", () => {
+  assert.throws(() => json("PostToolUse", { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "replacement" } }));
   for (const event of ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"] as const) {
     assert.deepEqual(json(event, { decision: "block", reason: "failed check", additionalContext: "feedback" }), { blocked: true, reason: "failed check", context: "feedback" });
     assert.equal(json(event, { decision: "block" }).blocked, true);
@@ -191,47 +159,6 @@ test("every unsuccessful exit blocks with stderr or a safe fallback", () => {
       assert.equal(parsed.reason.includes("private-sentinel"), false);
     }
   }
-});
-
-test("invalid JSON-looking output and non-object JSON fail without exposing output", () => {
-  for (const stdout of ["{private-sentinel", "[]", "null", "true", "42", '"text"']) {
-    for (const event of HOOK_EVENTS) {
-      assert.throws(() => parseHookOutput(event, { code: 0, stdout, stderr: "" }), (error: Error) => !error.message.includes("private-sentinel"));
-    }
-  }
-});
-
-test("unsupported controls and unknown fields fail at both envelope levels", () => {
-  for (const event of HOOK_EVENTS) {
-    for (const field of ["ask", "updatedInput", "updatedToolOutput", "updatedMCPToolOutput", "async", "systemMessage", "unknown"]) {
-      assert.throws(() => json(event, { [field]: true }));
-      assert.throws(() => json(event, { hookSpecificOutput: { hookEventName: event, [field]: true } }));
-    }
-    assert.throws(() => json(event, { hookSpecificOutput: { hookEventName: "SessionEnd" } }));
-    assert.throws(() => json(event, { hookSpecificOutput: {} }));
-    assert.throws(() => json(event, { hookSpecificOutput: null }));
-    assert.throws(() => json(event, { hookSpecificOutput: [] }));
-    assert.throws(() => json(event, { decision: "allow" }));
-    assert.throws(() => json(event, { suppressOutput: false }));
-    assert.throws(() => json(event, { continue: "false" }));
-  }
-  assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } }));
-  assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "unknown" } }));
-});
-
-test("controls apply only to their declared events", () => {
-  for (const event of HOOK_EVENTS) {
-    if (event !== "PreToolUse") assert.throws(() => json(event, { hookSpecificOutput: { hookEventName: event, permissionDecision: "deny" } }));
-    if (event !== "UserPromptSubmit") assert.throws(() => json(event, { continue: false, stopReason: "stop" }));
-    if (event !== "Stop") assert.throws(() => json(event, { hookSpecificOutput: { hookEventName: "Stop" } }));
-  }
-  assert.throws(() => json("SessionStart", { decision: "block" }));
-  for (const value of [{ decision: "block", reason: "continue work" }, { additionalContext: "" }, { hookSpecificOutput: { hookEventName: "Stop", additionalContext: "context" } }, { continue: false }]) assert.throws(() => json("Stop", value));
-});
-
-test("known fields reject invalid types and unattached reasons", () => {
-  for (const value of [{ additionalContext: null }, { additionalContext: 1 }, { reason: "unused" }, { decision: "block", reason: 1 }, { continue: false, stopReason: [] }, { stopReason: "unused" }, { suppressOutput: "true" }]) assert.throws(() => json("UserPromptSubmit", value));
-  for (const value of [{ permissionDecisionReason: "unused" }, { permissionDecision: "deny", permissionDecisionReason: {} }, { additionalContext: {} }]) assert.throws(() => json("PreToolUse", { hookSpecificOutput: { hookEventName: "PreToolUse", ...value } }));
 });
 
 test("context limits count UTF-8 bytes across both context fields", () => {

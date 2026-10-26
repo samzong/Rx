@@ -96,11 +96,6 @@ an editor that speaks ACP, configure the editor to run `rx rx-agent acp`. See
 Add MCP servers in `$RX_HOME/mcp.json` or supply them through ACP new/load.
 rx-agent supports stdio and Streamable HTTP. See [MCP tools](agent/docs/mcp.md).
 
-Add user command checks in `$RX_HOME/hooks.json` (default `~/.rx/hooks.json`).
-Hooks can reject prompts or tool calls, add context, and report post-tool failures.
-Rx reads this file once when a session opens. It never discovers project hook files.
-See [command hooks](agent/docs/hooks.md) for the supported events, JSON protocol, and limits.
-
 Long sessions compact automatically before a model request reaches its context budget.
 In the REPL or ACP, enter `/compact` to compact the session now.
 Stop cancels a summary request. The complete session history remains in the log.

@@ -8,7 +8,7 @@ It can check an action, reject it before execution, or provide context.
 
 Create `$RX_HOME/hooks.json`, or `~/.rx/hooks.json` when `RX_HOME` is unset.
 Rx only reads this file. An absent file disables hooks.
-Each new or resumed session reads one immutable snapshot.
+Each new or resumed session reads one read-once snapshot.
 Changes take effect when another session opens or resumes.
 Rx never discovers hook files in projects, other harness homes, or plugins.
 
@@ -173,39 +173,3 @@ Its new context waits for the next accepted prompt.
 ACP history presents `rx` context as labeled agent notices, not user-authored text.
 Session titles use the first submitted user message.
 The session log remains the sole durable history owner.
-
-## Scope and alternatives
-
-Rx uses pi-agent-core 1.4.0 `beforeToolCall` and `afterToolCall`.
-The strongest alternative is pi-coding-agent's ExtensionRunner.
-That runner also needs session, model-registry, runtime, and action adapters.
-Rx already owns its Agent, logs, compaction, and ACP lifecycle.
-The command-check adapter adds less session machinery for this workflow.
-Revisit ExtensionRunner when users need several pi extension capabilities or existing extensions as their primary interface.
-
-The launcher preserves `request -> install -> plan -> config -> exec` and RX-AGENT-001..003.
-Hook discovery starts inside rx-agent after exec.
-The agent path stays `input -> agent -> tools -> session log -> output`.
-RX-HOOK-001 also preserves RX-CORE-001, RX-LOG-001..003, RX-RESUME-001, RX-CANCEL-001, RX-SECRET-001, and RX-PRIVATE-001.
-RX-PERM-001, RX-ACP-001, RX-CONTEXT-001, RX-MCP-001, RX-CLI-001, and RX-COMPACT-001/005 also constrain this path.
-
-Project discovery, plugins, HTTP/MCP/prompt/agent handlers, hot reload, async commands, and subagent/compaction events are excluded.
-Input replacement, output replacement, automatic rollback, and Stop-driven continuation are excluded.
-Existing Claude/Codex scripts need native matchers and compatible input fields.
-Scripts that parse another harness's transcripts require adaptation.
-Command-rewriting scripts cannot run unchanged under this contract.
-
-## Lody acceptance
-
-Lody consumes `rxa acp` tool updates, text, prompt results, and history replay.
-It does not need pi RPC, extension UI, or an additional permission request.
-Rendered Lody behavior requires a separate manual run with the candidate binary.
-
-1. Open `rxa acp` in Lody with a disposable working directory and isolated hook file.
-2. Emit a unique SessionStart context token and ask the model to report it.
-3. Deny a marker-file command and an inert MCP call. Expect failed cards, reasons, no marker, and `end_turn`.
-4. Fail a post-check. Expect the side effect, original output, failed card, and model explanation to remain.
-5. Reject a prompt. Expect an agent notice, no accepted user record, and no model request.
-6. Time out and cancel hanging hooks. Expect stopped process groups, finalized cards, and `cancelled` only for cancellation.
-7. Resume the session. Expect the same labeled context and failed results without historical hook or tool execution.
-8. Complete a normal prompt, cancel another, and compact manually. Expect Stop only after normal completion.

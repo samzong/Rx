@@ -2,6 +2,7 @@ import type { Agent, AgentMessage, AfterToolCallContext, BeforeToolCallContext }
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { parseHookOutput } from "./hook-config.ts";
 import { runHookCommand } from "./hook-runner.ts";
+import { HOOK_OUTPUT_LIMIT } from "./hook-types.ts";
 import type { HookConfiguration, HookEvent, HookInput, HookOutput } from "./hook-types.ts";
 import type { SessionLog } from "./session-log.ts";
 
@@ -71,7 +72,7 @@ export function installHooks(agent: Agent, log: SessionLog, configuration: HookC
           try {
             result = parseHookOutput(event, await runHookCommand(command, input, combined));
             combined.throwIfAborted();
-            if (result.context && Buffer.byteLength([...context, result.context].join("\n")) > 65_536) throw new Error("Hook context exceeded 64 KiB for this event");
+            if (result.context && Buffer.byteLength([...context, result.context].join("\n")) > HOOK_OUTPUT_LIMIT) throw new Error("Hook context exceeded 64 KiB for this event");
           } catch (error) {
             result = { blocked: true, reason: combined.aborted ? "Hook cancelled" : error instanceof Error ? error.message : "Hook execution failed" };
           }

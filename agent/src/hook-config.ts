@@ -1,11 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { HOOK_EVENTS } from "./hook-types.ts";
+import { HOOK_EVENTS, HOOK_OUTPUT_LIMIT } from "./hook-types.ts";
 import type { HookCommand, HookCommandResult, HookConfiguration, HookEvent, HookGroup, HookOutput } from "./hook-types.ts";
 
-export const HOOK_OUTPUT_LIMIT = 65536;
-
-const EMPTY_HOOKS: HookConfiguration = Object.freeze({});
+const EMPTY_HOOKS: HookConfiguration = {};
 
 function object(value: unknown, location: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${location}: expected an object`);
@@ -23,7 +21,7 @@ function command(value: unknown): HookCommand {
   if (typeof entry.command !== "string" || !entry.command.trim() || entry.command.includes("\0")) throw new Error("Hook command: expected a nonempty command without NUL characters");
   const timeout = entry.timeout === undefined ? 30 : entry.timeout;
   if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0 || timeout > 600) throw new Error("Hook command: timeout must be positive, finite, and at most 600 seconds");
-  return Object.freeze({ command: entry.command, timeout });
+  return { command: entry.command, timeout };
 }
 
 function group(event: HookEvent, value: unknown): HookGroup {
@@ -35,14 +33,12 @@ function group(event: HookEvent, value: unknown): HookGroup {
   if (typeof entry.matcher === "string" && entry.matcher !== "") {
     if (event === "UserPromptSubmit" || event === "Stop") throw new Error(`Hook configuration ${event}: matcher is not supported`);
     if (entry.matcher !== "*") {
-      try { matcher = Object.freeze(new RegExp(entry.matcher)); }
+      try { matcher = new RegExp(entry.matcher); }
       catch { throw new Error(`Hook configuration ${event}: invalid matcher regex`); }
     }
   }
-  const commands = Object.freeze(entry.hooks.map(command));
-  if (matcher === undefined) return Object.freeze({ commands });
-  const source = matcher.source;
-  return Object.freeze({ get matcher() { return Object.freeze(new RegExp(source)); }, commands });
+  const commands = entry.hooks.map(command);
+  return { matcher, commands };
 }
 
 export function loadHooks(home: string): HookConfiguration {
@@ -64,9 +60,9 @@ export function loadHooks(home: string): HookConfiguration {
     const entries = hooks[event];
     if (entries === undefined) continue;
     if (!Array.isArray(entries)) throw new Error(`Hook configuration ${event}: expected an array`);
-    configuration[event] = Object.freeze(entries.map((entry) => group(event, entry)));
+    configuration[event] = entries.map((entry) => group(event, entry));
   }
-  return Object.freeze(configuration);
+  return configuration;
 }
 
 function stringField(value: Record<string, unknown>, key: string): string | undefined {
