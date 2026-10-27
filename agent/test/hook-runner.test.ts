@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { getEventListeners } from "node:events";
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -69,6 +70,42 @@ test("hook returns the original nonzero exit code and complete output", async (t
     stdout: "complete stdout",
     stderr: "complete stderr",
   });
+});
+
+for (const code of [0, 2]) {
+  test(`hook preserves exit ${code} and complete output without consuming large input`, async (t) => {
+    const stdout = '{"decision":"block","reason":"policy"}';
+    const f = fixture(t, `printf '${stdout}'; printf 'policy diagnostic' >&2; exit ${code}`);
+    f.input.tool_input = { path: "large.txt", content: "x".repeat(1024 * 1024) };
+    assert.deepEqual(await runHookCommand({ command: f.command, timeout: 5 }, f.input), {
+      code,
+      stdout,
+      stderr: "policy diagnostic",
+    });
+  });
+}
+
+test("hook rejects a stdin write error other than EPIPE", (t) => {
+  const f = fixture(t, "cat >/dev/null");
+  const script = join(f.cwd, "input-error.mjs");
+  writeFileSync(script, `
+    import assert from "node:assert/strict";
+    import childProcess from "node:child_process";
+    import { syncBuiltinESMExports } from "node:module";
+    const spawn = childProcess.spawn;
+    childProcess.spawn = (...args) => {
+      const child = spawn(...args);
+      child.stdin.end = () => {
+        child.stdin.destroy(Object.assign(new Error("injected write failure"), { code: "EIO" }));
+        return child.stdin;
+      };
+      return child;
+    };
+    syncBuiltinESMExports();
+    const { runHookCommand } = await import(${JSON.stringify(new URL("../src/hook-runner.ts", import.meta.url).href)});
+    await assert.rejects(runHookCommand(${JSON.stringify({ command: f.command, timeout: 5 })}, ${JSON.stringify(f.input)}), /Hook input could not be written/);
+  `);
+  execFileSync(process.execPath, [script], { cwd: f.cwd, timeout: 10_000 });
 });
 
 test("hook allows 64 KiB on each output stream", async (t) => {
