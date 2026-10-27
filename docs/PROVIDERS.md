@@ -14,7 +14,9 @@ if live `GET /v1/models` omits a window. OpenAI roots that already end in `/vN`
 Protocol-scoped model controls live in the admission file's
 `model_capabilities` map and are copied into the bundled snapshot. The key is
 provider ID, normalized endpoint, model ID, and protocol. Live `GET /v1/models`
-only filters which models are currently available. A matching bundled entry
+only filters which models are currently available. Models with a string `mode`
+other than `chat` or `responses` are excluded. Models without a string `mode`
+remain available. A matching bundled entry
 may declare reasoning as `fixed` or list the selectable effort IDs and their
 wire values. Missing data stays unknown and is not inferred from a model name.
 Overriding a bundled provider's endpoint disables its bundled model

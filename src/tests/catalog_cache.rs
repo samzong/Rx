@@ -72,6 +72,86 @@ fn base_url_override_clears_bundled_anthropic_base() {
 }
 
 #[test]
+fn provider_modes_filter_every_generated_catalog() {
+    let body = r#"{"data":[
+        {"id":"conversation","mode":"chat"},
+        {"id":"response","mode":"responses"},
+        {"id":"jev-latest"},
+        {"id":"unknown-null","mode":null},
+        {"id":"unknown-number","mode":1},
+        {"id":"text-embedding-3-small","mode":"embedding"},
+        {"id":"gpt-4o-transcribe","mode":"audio_transcription"},
+        {"id":"tts-1","mode":"audio_speech"},
+        {"id":"future-mode","mode":"image"},
+        {"id":"empty-mode","mode":""}
+    ]}"#;
+    let expected = ["conversation", "response", "jev-latest", "unknown-null", "unknown-number"];
+    let (_dir, paths) = temp_paths();
+    let (base_url, server) = serve_openai_models(body);
+    assert_eq!(
+        catalog::update_models(&paths, "lab", &base_url, "sk-test").unwrap(),
+        expected.len()
+    );
+    server.join().unwrap();
+    let codex: Value = read_json(paths.dir.join("catalogs/lab.json"));
+    assert_eq!(
+        codex["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["slug"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let claude: Value = read_json(paths.dir.join("catalogs/lab.claude.json"));
+    assert_eq!(
+        claude["additional_model_options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["value"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let opencode =
+        catalog::load_opencode_models(&paths, "lab", &base_url, "sk-test", false).unwrap();
+    assert_eq!(opencode.len(), expected.len());
+    assert!(expected.iter().all(|id| opencode.contains_key(*id)));
+    let pi = catalog::load_pi_models(&paths, "lab", &base_url, "sk-test", false).unwrap();
+    assert_eq!(pi.iter().map(|model| model["id"].as_str().unwrap()).collect::<Vec<_>>(), expected);
+    let listed = catalog::load_listed_models(&paths, "lab", &base_url, "sk-test", false).unwrap();
+    assert_eq!(listed.iter().map(|model| model.id.as_str()).collect::<Vec<_>>(), expected);
+}
+
+#[test]
+fn non_chat_only_discovery_does_not_publish_catalogs() {
+    let (_dir, paths) = temp_paths();
+    let (base_url, server) =
+        serve_openai_models(r#"{"data":[{"id":"embedding","mode":"embedding"}]}"#);
+    assert!(catalog::update_models(&paths, "lab", &base_url, "sk-test").is_err());
+    server.join().unwrap();
+    assert!(!paths.dir.join("catalogs").exists());
+}
+
+#[test]
+fn previous_catalog_format_refetches_before_use() {
+    let (_dir, paths) = temp_paths();
+    let (base_url, server) =
+        serve_openai_models_times(r#"{"data":[{"id":"conversation","mode":"chat"}]}"#, 2);
+    catalog::prepare_codex_catalog(&paths, "lab", &base_url, "sk-test").unwrap().unwrap();
+    let meta_path = paths.dir.join("catalogs/lab.meta.json");
+    let mut meta: Value = read_json(&meta_path);
+    meta["format"] = json!(4);
+    write_json(&meta_path, &meta);
+    write_json(paths.dir.join("catalogs/lab.json"), &json!({"models":[{"slug":"embedding"}]}));
+    let path =
+        catalog::prepare_codex_catalog(&paths, "lab", &base_url, "sk-test").unwrap().unwrap();
+    let document: Value = read_json(path);
+    assert_eq!(document["models"][0]["slug"], "conversation");
+    server.join().unwrap();
+}
+
+#[test]
 fn openai_data_becomes_codex_model_catalog_json() {
     let models = catalog::parse_openai_models(
         r#"{"data":[{"id":"gpt-5.6-sol","name":"GPT 5.6 Sol"},{"id":"claude-sonnet-5"}]}"#,

@@ -12,7 +12,7 @@ use crate::config::Paths;
 
 pub(crate) const DEFAULT_CONTEXT_WINDOW: i64 = 200_000;
 const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
-const CATALOG_FORMAT: u32 = 4;
+const CATALOG_FORMAT: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ListedModel {
@@ -334,6 +334,11 @@ pub(crate) fn fallback_context(provider_id: &str) -> i64 {
 }
 
 pub(crate) fn parse_listed_model(row: &Value) -> Option<ListedModel> {
+    if let Some(mode) = row.get("mode").and_then(Value::as_str)
+        && !matches!(mode, "chat" | "responses")
+    {
+        return None;
+    }
     let id = row.get("id")?.as_str()?.to_string();
     let name = row
         .get("name")
