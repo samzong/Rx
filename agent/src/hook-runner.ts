@@ -47,7 +47,9 @@ export async function runHookCommand(handler: HookCommand, input: HookInput, sig
     };
     const onAbort = () => fail("Hook command aborted");
     const onProcessError = () => fail("Hook process could not start");
-    const onInputError = () => fail("Hook input could not be written");
+    const onInputError = (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") fail("Hook input could not be written");
+    };
     const onOutputError = () => fail("Hook output could not be read");
     const onStdout = (chunk: Buffer) => {
       stdoutBytes += chunk.length;

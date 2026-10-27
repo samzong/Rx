@@ -77,6 +77,10 @@ Common fields are `hook_event_name`, `session_id`, `cwd`, `transcript_path`, and
 `transcript_path` is the actual Rx log. `transcript_format` is `rx-jsonl-v1`.
 Rx never supplies a fabricated Claude or Codex transcript or permission mode.
 
+Commands can exit without consuming all input.
+A closed input pipe (`EPIPE`) does not override the command's exit status or output.
+Other stdin write errors fail the command.
+
 | Event | Additional fields |
 | --- | --- |
 | SessionStart | `source`: `startup` or `resume`. |
