@@ -52,7 +52,7 @@ impl EnvLookup {
 
 #[derive(Debug)]
 pub(crate) struct LaunchPlan {
-    pub(crate) launch_lease: Option<std::fs::File>,
+    pub(crate) launch_lease: Option<crate::kimi::Lease>,
     pub(crate) program: PathBuf,
     pub(crate) args: Vec<OsString>,
     pub(crate) env_set: Vec<(String, String)>,
@@ -385,7 +385,7 @@ pub(crate) fn exec(plan: &LaunchPlan) -> Result<()> {
     }
     cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
-    let _lease = plan.launch_lease.as_ref().map(fs2::FileExt::duplicate).transpose()?;
+    let _lease = plan.launch_lease.as_ref().map(crate::kimi::Lease::inheritable).transpose()?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

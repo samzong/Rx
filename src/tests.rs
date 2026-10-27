@@ -4,6 +4,8 @@ mod claude_catalog;
 mod cli;
 mod dsh;
 mod install_update;
+#[cfg(unix)]
+mod kimi_lease;
 mod launch_routes;
 mod pi;
 mod provider_config;

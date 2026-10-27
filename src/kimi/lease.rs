@@ -6,7 +6,23 @@ use anyhow::{Context, Result, bail};
 #[cfg(not(windows))]
 use fs2::FileExt;
 
-pub(super) fn acquire(path: &Path) -> Result<File> {
+#[derive(Debug)]
+pub(crate) struct Lease(File);
+
+impl Lease {
+    pub(crate) fn inheritable(&self) -> io::Result<File> {
+        fs2::FileExt::duplicate(&self.0)
+    }
+}
+
+#[cfg(not(windows))]
+impl Drop for Lease {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.0);
+    }
+}
+
+pub(super) fn acquire(path: &Path) -> Result<Lease> {
     if !path.try_exists()? {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create_new(true);
@@ -24,7 +40,7 @@ pub(super) fn acquire(path: &Path) -> Result<File> {
     let lease = open_lease(path, false)?;
     #[cfg(not(windows))]
     FileExt::try_lock_shared(&lease).context("failed to share Kimi catalog lease")?;
-    Ok(lease)
+    Ok(Lease(lease))
 }
 
 fn open_lease(path: &Path, write: bool) -> Result<File> {

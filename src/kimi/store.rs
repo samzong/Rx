@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
@@ -8,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item, Table, value};
 
+use super::Lease;
 use crate::catalog::{self, ListedModel};
 use crate::file_io::{self, appended as appended_path, read_optional as read_bytes};
 use crate::launch::ProviderTarget;
@@ -54,7 +54,7 @@ pub(super) fn seed_catalog(
     target: &ProviderTarget,
     models: &[ListedModel],
     allow_prompt: bool,
-) -> Result<File> {
+) -> Result<Lease> {
     let parent = config_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", config_path.display()))?;

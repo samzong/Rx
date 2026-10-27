@@ -1,6 +1,8 @@
 mod lease;
 mod store;
 
+pub(crate) use lease::Lease;
+
 use std::ffi::OsString;
 use std::path::PathBuf;
 
