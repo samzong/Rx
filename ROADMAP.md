@@ -45,6 +45,7 @@ Two lines that can run in parallel. Line A merges first; line B rebases onto it.
   credentials, and catalogs; single-file binary through `bun build --compile`.
 - [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
   independent of rx providers.
+- [x] MCP tools through pi-mcp, from `$RX_HOME/mcp.json` and ACP new/load.
 - [ ] Ship rx-agent in the release workflow and `rx update`.
 - [ ] Run rx-agent through ACP in Lody, or Zed if Lody cannot host a custom agent.
 

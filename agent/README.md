@@ -19,7 +19,7 @@ capabilities come from a pinned package that Rx may replace?
 | Skill metadata and prompt catalog text | `pi-coding-agent` | `src/skills.ts` | No plan. Rx uses 4 functions from this package, so removing it is the smallest dependency change. No decision yet. |
 | Token estimate and summary request | `pi-coding-agent` | `src/context.ts` | Same package and plan as the row above. |
 | MCP client: stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
-| Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts` and the other `src/acp-*.ts` modules | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
+| Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
 
 ## Owned by Rx
 
