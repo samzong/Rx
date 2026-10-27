@@ -45,6 +45,7 @@ Two lines that can run in parallel. Line A merges first; line B rebases onto it.
   credentials, and catalogs; single-file binary through `bun build --compile`.
 - [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
   independent of rx providers.
+- [x] MCP tools through pi-mcp, from `$RX_HOME/mcp.json` and ACP new/load.
 - [ ] Ship rx-agent in the release workflow and `rx update`.
 - [ ] Run rx-agent through ACP in Lody, or Zed if Lody cannot host a custom agent.
 
@@ -65,9 +66,8 @@ Each rx-agent failure is fixed and then becomes an eval task. Candidates,
 ordered by what daily use and evals show:
 
 - Sandbox for tool execution (replaces RX-PERM-001).
-- Context compaction: initial automatic and manual summaries with persistent checkpoints. Quality calibration and installed-Lody acceptance remain separate gates.
+- Compaction quality calibration against real sessions, and its acceptance in Lody.
 - Cross-session memory.
-- MCP tools.
 - Idempotency keys for external actions such as `git push`.
 - Replacing the pi-agent-core loop, only when evals show the loop is the limit.
 

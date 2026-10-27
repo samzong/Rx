@@ -3,6 +3,8 @@
 This is the normative contract for rx-agent, Rx's coding agent. The launcher
 side of the provider handoff is RX-AGENT-001..003 in
 [docs/DESIGN.md](../docs/DESIGN.md). Conflicting code is a bug, not precedent.
+[README.md](README.md) maps each capability to its owner and names what is not
+built yet.
 
 ## Principles
 
