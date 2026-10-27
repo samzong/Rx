@@ -8,7 +8,7 @@ fn target(key: &str) -> ProviderTarget {
     ProviderTarget { provider, key: key.to_string(), model: None }
 }
 
-fn seed(path: &Path, alias: &str, key: &str, models: &[ListedModel]) -> Result<File> {
+fn seed(path: &Path, alias: &str, key: &str, models: &[ListedModel]) -> Result<Lease> {
     seed_catalog(path, alias, &target(key), models, false)
 }
 

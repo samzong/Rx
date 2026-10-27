@@ -459,7 +459,7 @@ fn logout_cascade_clears_the_plaintext_key_kimi_stored_for_the_provider() {
     drop(plan);
 
     let report = crate::residue::purge("acme", &paths, &env);
-    assert!(report.removed());
+    assert!(report.removed(), "{:?}", report.notes());
     assert!(!report.credential_retained());
     assert!(config::logout(&paths, "acme").unwrap());
 

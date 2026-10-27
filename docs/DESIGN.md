@@ -63,8 +63,14 @@ under the rules in [rx-agent](#rx-agent).
 Injection preference is: flags or environment, immutable launch config, then a
 narrowly merged owned entry. Convenience never justifies persistent mutation.
 
-Kimi launches hold shared file leases across native execution: inherited `flock`
-locks on Unix and inherited read handles denying write sharing on Windows.
+Kimi launches hold shared file leases across native execution. Unix uses inherited
+`flock` locks. Windows uses inherited read handles that deny write sharing.
+During planning, lease descriptors retain close-on-exec and Windows handles remain
+non-inheritable. `launch::exec` creates an inheritable duplicate for native handoff.
+On Unix, discarding a plan explicitly unlocks its lease before closing the
+descriptor, so unrelated forked children cannot prolong a cancelled launch.
+Successful exec replaces Rust without running that cleanup and leaves the native
+process holding the lock.
 Identical complete
 catalog snapshots share one immutable lease identity derived from the snapshot
 fingerprint. The catalog marker records active and current snapshots; historical
