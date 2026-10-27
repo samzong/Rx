@@ -121,54 +121,6 @@ rx providers logout <provider>
 
 Bundled provider metadata is compiled into the binary. Live model catalogs come from the selected provider and are cached under `~/.recall/catalogs/` for one hour. Custom provider configuration and admission requirements are documented in [PROVIDERS.md](docs/PROVIDERS.md).
 
-## Agent capability map
-
-rx-agent owns the parts that gain value as models improve. It borrows the agent
-loop, model adapters, skill helpers, and MCP client from pinned
-`@earendil-works/pi-*` 1.4.0 packages. The tables below name the owner of each
-capability and the replacement plan for each borrowed package.
-
-### Borrowed from pi
-
-| Capability | Package | Used in | Replacement plan |
-| --- | --- | --- | --- |
-| Agent loop, tool scheduling, message queue, tool-call hooks | `pi-agent-core` | `agent/src/agent.ts` | Conditional. Replace it only when evals show that the loop is the limit. That needs eval evidence and an owner decision (RX-CORE-001). Evals are not started. |
-| Model access, streaming, provider adapters, thinking levels, model catalog | `pi-ai` | `agent/src/agent.ts`, `agent/src/rx-provider.ts`, `agent/src/models.ts`, `agent/src/cli.ts`, and most modules that handle model or message types | No. Rx keeps this as the borrowed commodity layer. A replacement needs the same eval evidence and owner decision (RX-CORE-001). |
-| Login flows and credential types | `pi-ai` | `agent/src/login.ts`, `agent/src/credentials.ts` | No. |
-| Tool input validation | `pi-ai` | `agent/src/hooks.ts` | No. |
-| Skill catalog, token estimate, summary request | `pi-coding-agent` | `agent/src/skills.ts`, `agent/src/context.ts` | No plan. Rx uses 4 functions from this package, so it is the cheapest borrowed surface to remove. No decision yet. |
-| MCP client, stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `agent/src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
-| Agent Client Protocol wire format | `@agentclientprotocol/sdk` 2.0.2 | `agent/src/acp.ts` | Not a pi package. Pinned and covered by RX-ACP-001. |
-
-### Owned by Rx
-
-| Capability | Used in |
-| --- | --- |
-| `read`, `write`, `edit`, `bash`, and local image input | `agent/src/tools.ts` |
-| System prompt, `AGENTS.md` and `CLAUDE.md` loading, `@path` expansion | `agent/src/agent.ts`, `agent/src/instructions.ts` |
-| Skill discovery, precedence, and collision reports | `agent/src/skills.ts` |
-| Context budgets, compaction, checkpoints, overflow recovery, `/compact` | `agent/src/context.ts`, `agent/src/context-control.ts` |
-| Session log, resume repair, session list, pid locks | `agent/src/session-log.ts`, `agent/src/pid-lock.ts` |
-| Command hooks and lifecycle events | `agent/src/hooks.ts`, `agent/src/hook-config.ts`, `agent/src/hook-runner.ts` |
-| MCP configuration validation and tool adaptation | `agent/src/mcp.ts` |
-| CLI, REPL, print mode, and transport error capture | `agent/src/cli.ts`, `agent/src/terminal.ts`, `agent/src/transport-errors.ts` |
-| ACP server, session controls, usage reports, cancel | `agent/src/acp.ts`, `agent/src/acp-config.ts`, `agent/src/acp-messages.ts`, `agent/src/acp-usage.ts` |
-| Fast service tier injection | `agent/src/acp-fast.ts` |
-| Provider handoff from the launcher | `agent/src/rx-provider.ts` |
-
-### Not built yet
-
-| Capability | Current state | Tracked in |
-| --- | --- | --- |
-| Sandbox for tool execution | Tools run with your permissions (RX-PERM-001) | `ROADMAP.md`, after phase 1 |
-| Eval set and runner | Not started. No agent score exists yet. | `ROADMAP.md`, phase 1 B |
-| Run rx-agent through ACP in Lody | The ACP server ships. The Lody run is still open. | `ROADMAP.md`, phase 1 A |
-| Cross-session memory | Not built | `ROADMAP.md`, after phase 1 |
-| Idempotency keys for external actions | Not built. A retried `git push` can run twice. | `ROADMAP.md`, after phase 1 |
-| Plan mode, subagents, todo list, web search, LSP diagnostics | Not built and not scheduled | no entry |
-| Permission requests over ACP | Not advertised (RX-ACP-001) | `agent/DESIGN.md` |
-| Cost in ACP usage reports | Omitted by contract (RX-ACP-004) | `agent/DESIGN.md` |
-
 ## Development
 
 Install Rust and cargo-audit 0.22.2, then run:
