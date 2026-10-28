@@ -1,0 +1,6 @@
+overrides:
+  undici@8.10.2: 8.12.2
+
+allowBuilds:
+  "@google/genai": false
+  protobufjs: false
