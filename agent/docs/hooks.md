@@ -54,7 +54,7 @@ Tool matchers are case-sensitive regular expressions over actual tool names.
 Missing, empty, and `*` match all names.
 SessionStart matches its `source`, either `startup` or `resume`.
 UserPromptSubmit and Stop do not use matchers.
-Use native names: `read`, `write`, `edit`, `bash`, or the discovered `mcp__...` name.
+Use native names: `read`, `write`, `edit`, `bash`, `recall_log`, or the discovered `mcp__...` name.
 
 | Event | Boundary | Permitted effect |
 | --- | --- | --- |

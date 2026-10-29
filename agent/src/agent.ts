@@ -5,6 +5,7 @@ import { installContextControl } from "./context.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
 import { skillCatalog } from "./skills.ts";
+import { sessionHistoryTool } from "./session-history.ts";
 import { codingTools } from "./tools.ts";
 import { installHooks, isHookContext } from "./hooks.ts";
 import type { HookConfiguration } from "./hook-types.ts";
@@ -78,7 +79,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
       systemPrompt: options.systemPrompt,
       model: options.model,
       thinkingLevel: options.thinking,
-      tools: [...codingTools(options.cwd, () => agent.state.model), ...options.tools ?? []],
+      tools: [...codingTools(options.cwd, () => agent.state.model), sessionHistoryTool(options.log, () => agent.state.model), ...options.tools ?? []],
       messages: options.messages ?? [],
     },
   });

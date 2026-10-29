@@ -30,7 +30,7 @@ function harness() {
 }
 
 const source = "Keep protected.txt unchanged. accepted.txt is complete. Inspect unknown side effects before retrying. " + "historical evidence ".repeat(1200);
-const summary = () => fauxAssistantMessage("Keep protected.txt unchanged. accepted.txt is complete. Inspect unknown side effects before retrying.");
+const summary = () => fauxAssistantMessage("Keep protected.txt unchanged. accepted.txt is complete. Inspect unknown side effects before retrying. [log 1-1]");
 const entries = (path: string) => readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 
 test("ACP uses the real context controller for manual compaction, full replay, and fresh working usage", async () => {

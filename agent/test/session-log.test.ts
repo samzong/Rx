@@ -54,7 +54,7 @@ test("a torn final line is ignored but corruption elsewhere is an error", () => 
   assert.equal(SessionLog.open(home, log.id).messages.length, 1);
   const broken = SessionLog.create(home, "/work");
   appendFileSync(broken.path, "not json\n");
-  broken.append("cli", user("two"));
+  appendFileSync(broken.path, `${JSON.stringify({ type: "message", at: new Date().toISOString(), origin: "cli", message: user("two") })}\n`);
   assert.throws(() => SessionLog.open(home, broken.id), /corrupt log line/);
 });
 

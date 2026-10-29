@@ -19,10 +19,11 @@ borrowed package and the tracking location for a capability that does not exist.
 | Token estimate and summary request | `pi-coding-agent` | `src/context.ts` | Same package and plan as the row above. |
 | MCP client: stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
 | Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
+| Historical content by original ordinal: `recall_log`, current session only | Rx | `src/session-history.ts` | Not applicable. |
 | Tools: `read`, `write`, `edit`, `bash`, local image input | Rx | `src/tools.ts` | Not applicable. |
 | System prompt, `AGENTS.md` and `CLAUDE.md` discovery, `@path` expansion | Rx | `src/agent.ts`, `src/instructions.ts` | Not applicable. |
 | Skill discovery, precedence, collision reports | Rx | `src/skills.ts` | Not applicable. |
-| Compaction: request budgets, checkpoints, overflow recovery, `/compact` | Rx | `src/context.ts`, `src/context-control.ts` | Not applicable. |
+| Compaction: clear old tool output first, summarize with original source references, checkpoints, overflow recovery, `/compact` | Rx | `src/context.ts`, `src/context-control.ts` | Not applicable. |
 | Session log, resume repair, session list, locks | Rx | `src/session-log.ts`, `src/pid-lock.ts` | Not applicable. |
 | Command hooks and lifecycle events | Rx | `src/hooks.ts`, `src/hook-config.ts`, `src/hook-runner.ts` | Not applicable. |
 | MCP configuration validation and tool adaptation | Rx | `src/mcp.ts` | Not applicable. |

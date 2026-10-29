@@ -144,7 +144,10 @@ The launcher keeps the request, plan, configuration, and exec path. Binary disco
 RX-AGENT-002/003 continue to supply endpoint-scoped model metadata and context windows.
 An API name does not establish native provider compaction support.
 Summary requests use the selected agent model and endpoint without a second credential route.
-Versioned checkpoints stay in the agent's append-only v1 session log.
+Versioned checkpoints and clearing selections stay in the agent's append-only v1 session log.
+The agent clears eligible older tool results before summaries and preserves original source ordinals.
+Its `recall_log` tool retrieves visible content from the current session without a Recall dependency or new ACP message types.
+Rebuildable retrieval files stay inside the agent-owned session directory.
 Summary usage uses additive v1 message fields under the [session log contract](../agent/docs/session-log.md).
 Initial CLI prompts follow the [agent CLI contract](../agent/docs/cli.md).
 The launcher preserves prompt arguments and `--` through the same request, install, plan, configuration, and exec path.
