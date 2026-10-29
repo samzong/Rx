@@ -1,4 +1,5 @@
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SourceRange } from "./context-source.ts";
 
 export interface CompactionCheckpoint {
   type: "compaction";
@@ -7,6 +8,8 @@ export interface CompactionCheckpoint {
   through: number;
   summary: string;
   retained: AgentMessage[];
+  summarySources?: SourceRange[];
+  retainedSources?: SourceRange[][];
 }
 
 export interface CompactionEvent {

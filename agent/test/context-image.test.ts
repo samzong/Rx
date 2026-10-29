@@ -35,7 +35,7 @@ test("a read restores an older image after compaction omits it from working cont
   faux.setResponses([(context) => {
     assert.match(JSON.stringify(context.messages), /Historical image omitted/);
     assert.ok(!JSON.stringify(context.messages).includes(data));
-    return fauxAssistantMessage(`The image source is ${path}. Read it again for visual details. Later evidence was recorded.`);
+    return fauxAssistantMessage(`The image source is ${path}. Read it again for visual details. Later evidence was recorded. [log 1-1]`);
   }]);
   await control.compact();
   assert.ok(!JSON.stringify(agent.state.messages).includes(data));

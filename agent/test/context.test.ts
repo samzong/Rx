@@ -21,7 +21,7 @@ function setup(window = 16384, history: AgentMessage[] = [], prompt = "Follow th
 
 const user = (content: string): AgentMessage => ({ role: "user", content, timestamp: Date.now() });
 const history = (length = 18000): AgentMessage[] => [user(`Keep file secret.txt unchanged. Fix issue A. ${"prior evidence ".repeat(Math.ceil(length / 15))}`), fauxAssistantMessage("Completed edit of result.txt. Pending verification. Unknown side effect of interrupted command.")];
-const summary = () => fauxAssistantMessage("Goal: fix A. Do not edit secret.txt. result.txt was edited. Verify next. The interrupted command has unknown side effects.");
+const summary = () => fauxAssistantMessage("Goal: fix A. Do not edit secret.txt. result.txt was edited. Verify next. The interrupted command has unknown side effects. [log 1-1]");
 
 function records(log: SessionLog): any[] {
   return readFileSync(log.path, "utf8").trim().split("\n").map((line) => JSON.parse(line));

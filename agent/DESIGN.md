@@ -22,15 +22,17 @@ built yet.
 | Module | Role |
 | --- | --- |
 | `src/agent.ts` | Builds the pi-agent-core `Agent`: system prompt, model stream, tools, and log subscription. |
-| `src/context.ts` | Owns request budgets, bounded summaries, checkpoint installation, cancellation, and overflow recovery. |
+| `src/context.ts` | Owns request budgets, clearing before summaries, source citations, projection installation, cancellation, and overflow recovery. |
 | `src/context-control.ts` | Defines the internal context controls and lifecycle events. |
 | `src/transport-errors.ts` | Captures safe HTTP transport causes before provider adapters discard them. |
 | `src/instructions.ts` | Finds the project boundary and loads instructions with local file references. |
 | `src/skills.ts` | Finds skill files and uses pi-coding-agent to load metadata and format the catalog. |
 | `src/hooks.ts`, `src/hook-config.ts`, `src/hook-runner.ts` | User command checks, lifecycle, protocol, and process cleanup. |
+| `src/session-history.ts` | The current-session `recall_log` tool and rebuildable retrieval files. |
+| `src/context-source.ts`, `src/context-plan.ts`, `src/context-citations.ts`, `src/context-messages.ts` | Internal provenance, context planning, citation validation, and visible-message conversion. |
 | `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
 | `src/mcp.ts` | User and ACP MCP configuration, connections, and tool adaptation. |
-| `src/session-log.ts` | Append-only JSONL session log, resume repair, and session listing. |
+| `src/session-log.ts`, `src/session-projection.ts` | Append-only JSONL session log, resume repair, and session listing. |
 | `src/models.ts` | Model and thinking-level resolution through pi-ai `Models`. |
 | `src/rx-provider.ts` | Validates the `RX_AGENT_PROVIDER` handoff and registers its provider and models. |
 | `src/credentials.ts` | rx-agent's credential store (`$RX_HOME/auth.json`) and installation id. |
@@ -62,15 +64,15 @@ built yet.
 | RX-ACP-001 | ACP v1 uses SDK 2.0.2 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. Load uses current launch defaults, then the client can reapply its saved choices. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
 | RX-ACP-002 | Each model exposes only its pi-ai thinking levels. Switching models clamps thinking to the new model and resets Fast. Boolean controls require the client capability. Lody receives per-model levels and Fast support through its versioned metadata because standard configuration options describe only the current model. |
 | RX-ACP-003 | Fast is available only for the native openai-codex subscription endpoint and exact models supported by the Codex 0.163.0 catalog and current Speed documentation. Rx retains streamSimple and injects service_tier: priority through onPayload. Other providers and endpoints receive no Fast injection. |
-| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint. Summary requests do not report working-context usage. Measurements before a checkpoint are no longer current. Image input requires the current model's image capability. |
+| RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint or clearing selection. Summary requests do not report working-context usage. Measurements before a projection change are no longer current. Clearing emits no estimated usage. Image input requires the current model's image capability. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
 | RX-HOOK-001 | User command hooks use one read-only configuration snapshot, fail closed before execution, may replace pre-tool input, preserve completed tool output, persist labeled context, and cancel process groups. [Full contract](docs/hooks.md). |
 | RX-MCP-001 | User and ACP MCP servers supply session tools through pi-mcp. Startup failures skip the failed server and produce a warning. See the full [MCP contract](docs/mcp.md#contract). |
 
 | RX-COMPACT-001 | Automatic request budgets. [Full contract][compaction]. |
-| RX-COMPACT-002 | Append-only checkpoints. [Full contract][compaction]. |
-| RX-COMPACT-003 | Bounded summaries. [Full contract][compaction]. |
+| RX-COMPACT-002 | Append-only checkpoints and clearing selections. [Full contract][compaction]. |
+| RX-COMPACT-003 | Bounded summaries with original source references. [Full contract][compaction]. |
 | RX-COMPACT-004 | Overflow recovery and cancellation. [Full contract][compaction]. |
 | RX-COMPACT-005 | REPL and ACP lifecycle. [Full contract][compaction]. |
 
@@ -85,6 +87,7 @@ built yet.
 | `$RX_HOME/mcp.json` | user | Read-only MCP server definitions under RX-MCP-001. |
 | `$RX_HOME/AGENTS.md` and referenced files | user | Rx reads global instructions. Users can create a symlink to their shared instructions. Rx never creates that link. |
 | `$RX_HOME/sessions/<id>.jsonl` | Rx | Created and appended by Rx only. |
+| `$RX_HOME/sessions/<id>.recall/` | Rx | Rebuildable current-session retrieval files. Directories are `0700`, files are `0600`. Original logs remain authoritative. |
 | `$RX_HOME/sessions/<id>.lock` | Rx | Written while a process holds the session; removed when that process exits. |
 | `$RX_HOME/auth.json`, `auth.json.lock` | Rx | Written only by `login`, `logout`, and OAuth refresh under RX-AUTH-001. |
 | `$RX_HOME/device-id` | Rx | A random UUID created on first need and sent to providers whose login requires an installation id. |
@@ -142,7 +145,9 @@ The public fetch hook avoids a dependency fork and gives Rx a narrow boundary fo
 Each agent reuses one fetch wrapper so that provider clients retain their authentication caches without sharing failure state between sessions.
 If a needed cause remains unavailable or an adapter changes its fetch support, revisit that choice.
 
-Rx adds only the context-overflow recovery in RX-COMPACT-004. pi-ai supports bounded provider retries, but its current default is zero.
+Transport failures do not gain automatic retries. Context overflow permits the recovery in RX-COMPACT-004.
+Citation corrections follow RX-COMPACT-003 and do not retry transport failures.
+pi-ai supports bounded provider retries, but its current default is zero.
 The original connection failure did not retain enough evidence to establish that a retry was safe or useful.
 Repeated failures with a known transient cause are the signal to reconsider transport retries.
 Cancellation keeps its existing aborted result and does not gain a connection diagnostic.

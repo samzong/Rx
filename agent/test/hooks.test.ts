@@ -22,7 +22,11 @@ function setup(events: string[], body: string) {
   writeFileSync(script, `import {appendFileSync} from 'node:fs'; let text=''; for await (const chunk of process.stdin) text+=chunk; const input=JSON.parse(text); appendFileSync(${JSON.stringify(trace)},JSON.stringify(input)+'\\n'); ${body}`);
   const hooks = Object.fromEntries(events.map((event) => [event, [{ hooks: [{ type: "command", command: `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}` }] }]]));
   writeFileSync(join(home, "hooks.json"), JSON.stringify({ hooks }));
-  const records = () => existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : [];
+  const records = () => {
+    const text = existsSync(trace) ? readFileSync(trace, "utf8") : "";
+    const complete = text.slice(0, text.lastIndexOf("\n") + 1).trim();
+    return complete ? complete.split("\n").map((line) => JSON.parse(line)) : [];
+  };
   return { home, cwd, records };
 }
 

@@ -36,7 +36,7 @@ test("ACP restores compacted MCP history and replaces servers without replaying 
   h.faux.setResponses([
     fauxAssistantMessage([fauxToolCall("mcp__first__echo", { value: "MCP_FACT" }, { id: "first-call" })], { stopReason: "toolUse" }),
     fauxAssistantMessage("Completed MCP_FACT"),
-    fauxAssistantMessage("Keep MCP_FACT. Do not repeat completed side effects."),
+    fauxAssistantMessage("Keep MCP_FACT. Do not repeat completed side effects. [log 1-1]"),
     (context) => {
       assert.match(JSON.stringify(context.messages), /MCP_FACT/);
       assert.equal(context.messages.some((message) => message.role === "toolResult"), false);
