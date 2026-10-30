@@ -21,6 +21,8 @@ rx-agent is the one first-party harness. It is built from `agent/`, whose own
 contract is [agent/DESIGN.md](../agent/DESIGN.md), and the launcher treats it
 under the rules in [rx-agent](#rx-agent).
 
+The proposed [local supervisor](supervisor.md) defines a future ownership surface, not current launcher behavior.
+
 ## Invariants
 
 | ID | Contract |
