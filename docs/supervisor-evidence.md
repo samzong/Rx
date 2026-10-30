@@ -50,7 +50,7 @@ Its claims are documentation evidence for the retrieval date, not a binary test 
 - [Dispatch, depth, and cold resume, `README.md:45–61`](https://github.com/deepseek-ai/deepseek-harness/blob/ce7073d51254c26cd63b22a60835b8f948deb447/packages/subagent/subagent/README.md#L45-L61).
 - [Messaging and cancellation, `README.md:69–73`](https://github.com/deepseek-ai/deepseek-harness/blob/ce7073d51254c26cd63b22a60835b8f948deb447/packages/subagent/subagent/README.md#L69-L73), [depth enforcement, `child-agent.ts:49–57`](https://github.com/deepseek-ai/deepseek-harness/blob/ce7073d51254c26cd63b22a60835b8f948deb447/packages/subagent/subagent/src/child-agent.ts#L49-L57), and [recovery limits, `README.md:205–212`](https://github.com/deepseek-ai/deepseek-harness/blob/ce7073d51254c26cd63b22a60835b8f948deb447/packages/subagent/subagent/README.md#L205-L212).
 
-## Confer, Rx, and Lody boundaries
+## Confer and Rx boundaries
 
 Confer 0.2.4 is inspected at `cf15b5c55e785c02e684b641448ecb9a996857f4`.
 Its [specification](https://github.com/samzong/confer/blob/cf15b5c55e785c02e684b641448ecb9a996857f4/docs/SPEC.md#L80-L124) persists room/seat identities but not delivery queues or answers.
@@ -69,12 +69,6 @@ Both connections sent authenticated initialization and tool discovery. The sourc
 The probe used a synthetic provider credential only for local model selection and made no model request.
 It did not exercise task dispatch, GUI rendering, or real-model cancellation.
 
-The public Lody repository is a separate reference at `f625b6a0a6abe2545b0c1bb385e8c88b4a93df48`.
-Its [operation completion transaction](https://github.com/samzong/Lody/blob/f625b6a0a6abe2545b0c1bb385e8c88b4a93df48/apps/cli/src/orchestration/operation-store.ts#L780-L845) stores completion and indexes inbox delivery together.
-Its [inbox implementation](https://github.com/samzong/Lody/blob/f625b6a0a6abe2545b0c1bb385e8c88b4a93df48/apps/cli/src/orchestration/inbox/sqlite.ts#L179-L227) deduplicates receipts and creates automatic wake intent.
-Its [MCP server](https://github.com/samzong/Lody/blob/f625b6a0a6abe2545b0c1bb385e8c88b4a93df48/apps/cli/src/mcp/lody-mcp-server.ts#L2280-L2301) derives causal depth for asynchronous commands.
-This supports the choice of one transaction and explicit wake identity.
-The proposal does not copy Lody's larger synchronization model or claim parity with its running service.
 No private usage records, conversation data, or deployment configuration support this public design.
 
 ## Upgrade contract
@@ -134,15 +128,15 @@ Record observed processes, native IDs, database rows, and protocol messages with
 11. Run migration, failed migration, newer-schema rejection, and backup restore. Observe preserved task IDs, result revisions, and native references.
 12. Reconcile an uncertain task with proven release but unknown outcome. Observe that it stays uncertain, permits explicit continuation, and can be archived. Refuse archive while any queued/running task or uncertainty without release proof remains. Reopen the GUI and recover archived results and uncertainty evidence without replaying work.
 
-For Lody, keep the existing ACP contract unchanged and perform these regression steps before an implementation release:
+Keep the existing ACP contract unchanged and perform these ACP client regression steps before an implementation release:
 
-1. Launch `rxa acp` in a local Lody project and read a known file. Observe its tool card and final answer.
-2. Change model, thinking, and supported Fast controls. Reload the native session and make sure that Lody reapplies its choices.
+1. Launch `rxa acp` in a local ACP client project and read a known file. Observe its tool card and final answer.
+2. Change model, thinking, and supported Fast controls. Reload the native session and observe that the client reapplies its choices.
 3. Cancel a sleep task. Observe `cancelled`, tool cleanup, and the aborted log record.
 4. Reopen the client and load the same native session. Observe history replay, current usage, and compression events through existing capabilities.
 
-Lody consumes ACP new/load/list, prompt/update/cancel, configuration options, and its documented metadata extensions.
-It does not need access to the proposed database or supervisor MCP, and this document adds no Lody integration.
+ACP clients consume ACP new/load/list, prompt/update/cancel, configuration options, and their documented metadata extensions.
+ACP clients do not need access to the proposed database or supervisor MCP, and this document adds no ACP client integration.
 A multi-machine proposal becomes justified when accepted work repeatedly requires another host or local-only scheduling causes measured manual transfers.
 That proposal needs per-host execution ownership, authenticated remote control, directory mapping, and disconnected recovery.
 Sharing a WAL file over a network filesystem is not that design.

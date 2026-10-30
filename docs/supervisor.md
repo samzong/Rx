@@ -15,7 +15,7 @@ The duo skill keeps its existing Confer use.
 One supervisor owns one local SQLite database. Agent logs remain authoritative for conversation content.
 The database stores task input, bounded completion results, and native log references, but no transcript copy.
 The GUI mutates state only through the supervisor.
-Daily work can continue in Lody. There is no automatic import or synchronization of Lody tasks.
+Daily work can continue in existing ACP clients. There is no automatic task import or synchronization.
 Multi-machine execution, schedules, sharing, mobile access, and a UI framework are outside v1.
 
 Use a Rust crate at `supervisor/`, with a future `rx-supervisor` binary.
@@ -263,6 +263,6 @@ See the [upgrade contract](supervisor-evidence.md#upgrade-contract) for versions
 
 ## Acceptance and evidence
 
-The [evidence appendix](supervisor-evidence.md#v1-workflow-acceptance) defines the v1 workflow, Lody regression steps, and multi-machine revisit signal.
-Lody keeps its existing ACP integration and needs no supervisor database access.
+The [evidence appendix](supervisor-evidence.md#v1-workflow-acceptance) defines the v1 workflow, ACP client regression steps, and multi-machine revisit signal.
+Existing ACP clients keep their integration and need no supervisor database access.
 No supervisor or GUI runtime exists here. The injection probe does not prove dispatch, cancellation, or crash recovery.
