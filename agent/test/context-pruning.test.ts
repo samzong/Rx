@@ -80,9 +80,11 @@ test("the most recent completed group remains protected after narration, a new u
   }
   const h = setup([user("Inspect"), call("old"), result("old", "old ".repeat(15000)), call("recent"), result("recent", "recent ".repeat(15000)),
     fauxAssistantMessage([fauxToolCall("read", { path: "one" }, { id: "one" }), fauxToolCall("read", { path: "two" }, { id: "two" })], { stopReason: "toolUse" }), result("one", "partial current result")]);
-  assert.deepEqual(pruningPlan(h.agent.state.messages, h.model)!.clearedSeqs, [3]);
+  const plan = pruningPlan(h.agent.state.messages, h.model)!;
+  assert.deepEqual(plan.clearedSeqs, [3]);
+  assert.equal(plan.messages.at(-2), h.agent.state.messages.at(-2));
+  assert.equal(plan.messages.at(-1), h.agent.state.messages.at(-1));
 });
-
 
 test("insufficient eligible savings leave the prefix unchanged instead of committing another small edit", () => {
   const h = setup([user("Inspect"), call("old"), result("old", "old ".repeat(200)), call("recent"), result("recent", "current ".repeat(3000)), fauxAssistantMessage("Ready")]);

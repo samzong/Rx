@@ -6,11 +6,6 @@ export interface SourceRange {
   coverage?: true;
 }
 
-export interface ProjectionSources {
-  summarySources: SourceRange[];
-  retainedSources: SourceRange[][];
-}
-
 export interface HistoryRecord {
   seq: number;
   origin: string;

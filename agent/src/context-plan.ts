@@ -3,7 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { danglingToolCalls } from "./session-log.ts";
 import { messageSources, clearedMessage, rawMessageSeq, setMessageSources, type SourceRange } from "./context-source.ts";
 import { mergeSources, sourceLabel } from "./context-citations.ts";
-import { messageTokens, total, transcript, textTokens, visibleMessage } from "./context-messages.ts";
+import { messageTokens, total, textTokens, visibleMessage } from "./context-messages.ts";
 
 export const MAX_SUMMARY_CALLS = 8;
 
@@ -71,12 +71,14 @@ function splitText(text: string, budget: number): string[] {
 function sourceChunks(messages: AgentMessage[], budget: number): { text: string; sources: SourceRange[] }[] {
   const chunks: { text: string; sources: SourceRange[] }[] = [];
   for (const message of messages) {
-    const body = transcript(message);
+    const visible = visibleMessage(message);
+    if (!visible) continue;
+    const content = typeof visible.content === "string" ? visible.content : visible.content.map((block) => block.type === "text" ? block.text : "[Historical image omitted. Use recall_log with this source range if its visual detail is needed.]").join("\n");
+    const body = `${message.role === "user" ? "[Recorded user message]" : ""}\n${content}`;
     if (!body.trim()) continue;
     const sources = messageSources(message);
     const prefix = `${sourceLabel(sources)}\n`;
-    const parts = splitText(body, budget - textTokens(prefix) - 4);
-    for (const part of parts) {
+    for (const part of splitText(body, budget - textTokens(prefix) - 4)) {
       const text = prefix + part;
       const previous = chunks.at(-1);
       if (previous && textTokens(`${previous.text}\n\n${text}`) <= budget) {

@@ -118,7 +118,6 @@ export function validatePrune(value: unknown, through: number, messages: AgentMe
 
 export function sessionRecords(values: unknown[], path: string): {
   entries: MessageEntry[];
-  checkpoint?: CompactionCheckpoint;
   messages: AgentMessage[];
   usageThrough: number;
   cleared: Set<number>;
@@ -151,8 +150,8 @@ export function sessionRecords(values: unknown[], path: string): {
       if (!entries.some((entry) => entry.purpose !== "compaction") && value.summarySources === undefined) {
         value.summarySources = [];
         value.retainedSources = value.retained.map(() => []);
-        messages = checkpointMessages(value);
-      } else messages = checkpointMessages(value);
+      }
+      messages = checkpointMessages(value);
       usageThrough = entries.length;
     }
     if (value.type === "context_prune") {
@@ -166,8 +165,24 @@ export function sessionRecords(values: unknown[], path: string): {
       usageThrough = entries.length;
     }
   }
-  validateBoundary(entries, checkpoint, path);
-  return { entries, checkpoint, messages, usageThrough, cleared, inputs };
+  if (checkpoint) {
+    const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
+    const active = entries.slice(checkpoint.through).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
+    const activeCalls = new Set(danglingToolCalls(active).map((call) => call.id));
+    if (danglingToolCalls(history).some((call) => !activeCalls.has(call.id))) {
+      throw new Error(`${path}: compaction checkpoint hides an interrupted tool call`);
+    }
+    const visibleCalls = new Set<string>();
+    for (const message of active) {
+      if (message.role === "assistant") {
+        for (const block of message.content) if (block.type === "toolCall") visibleCalls.add(block.id);
+      }
+      if (message.role === "toolResult" && !visibleCalls.has(message.toolCallId)) {
+        throw new Error(`${path}: compaction checkpoint leaves an isolated tool result`);
+      }
+    }
+  }
+  return { entries, messages, usageThrough, cleared, inputs };
 }
 
 export function danglingToolCalls(messages: AgentMessage[]): { id: string; name: string }[] {
@@ -177,23 +192,4 @@ export function danglingToolCalls(messages: AgentMessage[]): { id: string; name:
       ? m.content.flatMap((block) => (block.type === "toolCall" && !answered.has(block.id) ? [{ id: block.id, name: block.name }] : []))
       : [],
   );
-}
-
-function validateBoundary(entries: MessageEntry[], checkpoint: CompactionCheckpoint | undefined, path: string): void {
-  if (!checkpoint) return;
-  const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
-  const active = entries.slice(checkpoint.through).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
-  const activeCalls = new Set(danglingToolCalls(active).map((call) => call.id));
-  if (danglingToolCalls(history).some((call) => !activeCalls.has(call.id))) {
-    throw new Error(`${path}: compaction checkpoint hides an interrupted tool call`);
-  }
-  const visibleCalls = new Set<string>();
-  for (const message of active) {
-    if (message.role === "assistant") {
-      for (const block of message.content) if (block.type === "toolCall") visibleCalls.add(block.id);
-    }
-    if (message.role === "toolResult" && !visibleCalls.has(message.toolCallId)) {
-      throw new Error(`${path}: compaction checkpoint leaves an isolated tool result`);
-    }
-  }
 }

@@ -28,25 +28,27 @@ const entries = (log: SessionLog) => readFileSync(log.path, "utf8").trim().split
 const summary = () => fauxAssistantMessage("Original evidence remains available. [log 1-1]");
 
 test("one citation correction uses original sources without promoting the rejected draft", async () => {
-  const h = setup();
-  assert.equal(compactionPlan(h.agent.state.messages, h.model)!.chunks.length, 1);
+  const h = setup(44000);
+  assert.equal(compactionPlan(h.agent.state.messages, h.model)!.chunks.length, 2);
   h.faux.setResponses([
+    fauxAssistantMessage("LAST_VALID_SUMMARY. [log 1-1]"),
     fauxAssistantMessage("REJECTED_DRAFT_IS_NOT_EVIDENCE. [log 1-3]"),
     (context) => {
       const request = JSON.stringify(context);
       assert.match(request, /previous attempt failed source validation/);
       assert.match(request, /Allowed source ranges: \[log 1-1\]/);
       assert.doesNotMatch(request, /REJECTED_DRAFT_IS_NOT_EVIDENCE/);
-      assert.match(request, /Original evidence/);
+      assert.match(request, /x{100}/);
+      assert.match(request, /LAST_VALID_SUMMARY/);
       return summary();
     },
   ]);
   await h.control.compact();
-  assert.equal(h.faux.state.callCount, 2);
+  assert.equal(h.faux.state.callCount, 3);
   const stored = entries(h.log);
-  assert.equal(stored.filter((entry) => entry.purpose === "compaction").length, 3);
+  assert.equal(stored.filter((entry) => entry.purpose === "compaction").length, 4);
   const checkpoint = stored.find((entry) => entry.type === "compaction");
-  assert.equal(checkpoint.through, 5);
+  assert.equal(checkpoint.through, 6);
   assert.deepEqual(checkpoint.summarySources, [{ from: 1, to: 1 }]);
   assert.deepEqual(SessionLog.open(h.log.home, h.log.id).messages, h.agent.state.messages.filter((message) => message.role !== "system"));
 });
@@ -77,21 +79,4 @@ test("citation corrections reserve a request for every remaining chunk within th
   h.faux.setResponses(Array.from({ length: 9 }, (_, index) => index === 0 ? fauxAssistantMessage("Uncited claim") : summary()));
   await h.control.compact();
   assert.equal(h.faux.state.callCount, MAX_SUMMARY_CALLS);
-});
-
-test("correction of a later chunk retains the last valid summary", async () => {
-  const h = setup(44000);
-  assert.equal(compactionPlan(h.agent.state.messages, h.model)!.chunks.length, 2);
-  h.faux.setResponses([
-    fauxAssistantMessage("LAST_VALID_SUMMARY. [log 1-1]"),
-    fauxAssistantMessage("REJECTED_LATER_DRAFT. [log 99-99]"),
-    (context) => {
-      const request = JSON.stringify(context);
-      assert.match(request, /LAST_VALID_SUMMARY/);
-      assert.doesNotMatch(request, /REJECTED_LATER_DRAFT/);
-      return summary();
-    },
-  ]);
-  await h.control.compact();
-  assert.equal(h.faux.state.callCount, 3);
 });

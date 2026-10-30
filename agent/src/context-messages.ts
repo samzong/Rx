@@ -52,10 +52,3 @@ export function visibleMessage(message: AgentMessage): UserMessage | undefined {
   }
   throw new Error("Context contains an unsupported message type");
 }
-
-export function transcript(message: AgentMessage): string {
-  const visible = visibleMessage(message);
-  if (!visible) return "";
-  const content = typeof visible.content === "string" ? visible.content : visible.content.map((block) => block.type === "text" ? block.text : "[Historical image omitted. Use recall_log with this source range if its visual detail is needed.]").join("\n");
-  return `${message.role === "user" ? "[Recorded user message]" : ""}\n${content}`;
-}

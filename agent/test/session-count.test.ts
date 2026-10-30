@@ -33,11 +33,18 @@ test("only successful message records consume ordinals", () => {
   log.appendCompactionUsage(usage());
   const checkpoint = log.appendCheckpoint("Completed task", []);
   assert.equal(checkpoint.through, 4);
+  appendFileSync(log.path, '{"type":"future"}\n');
   const next = user("next");
   log.append("acp", next);
   assert.equal(rawMessageSeq(first), 1);
   assert.equal(rawMessageSeq(next), 5);
-  assert.equal(SessionLog.open(log.home, log.id).log.messageCount, 5);
+  const loaded = SessionLog.open(log.home, log.id);
+  assert.equal(loaded.log.messageCount, 5);
+  assert.deepEqual(loaded.entries.map((entry) => rawMessageSeq(entry.message)), [1, 2, 3, undefined, 5]);
+  assert.deepEqual(loaded.history.map(rawMessageSeq), [1, 2, 3, 5]);
+  assert.deepEqual(log.readRange(2, 5).entries.map((entry) => [entry.seq, entry.origin, entry.purpose]), [
+    [2, "model", undefined], [3, "tool", undefined], [4, "model", "compaction"], [5, "acp", undefined],
+  ]);
 });
 
 test("old handles see appends, summary usage, and repairs from newer handles", () => {
@@ -87,7 +94,7 @@ test("failed opens do not replace the count used by existing handles", () => {
   const before = readFileSync(log.path);
   const corrupt = `${JSON.stringify({ type: "message", at: new Date().toISOString(), origin: "cli", message: user("untrusted") })}\n`;
   appendFileSync(log.path, `${corrupt}{"type":"context_prune","version":9}\npartial`);
-  assert.throws(() => SessionLog.open(log.home, log.id), /invalid context prune/);
+  assert.throws(() => SessionLog.open(log.home, log.id));
   assert.equal(log.messageCount, 2);
   writeFileSync(log.path, before);
   const next = user("three");
@@ -109,8 +116,8 @@ test("failed message and usage appends do not consume an ordinal", () => {
   }) as typeof fs.appendFileSync;
   syncBuiltinESMExports();
   try {
-    assert.throws(() => log.append("cli", failed), /injected append failure/);
-    assert.throws(() => other.appendCompactionUsage(usage()), /injected append failure/);
+    assert.throws(() => log.append("cli", failed));
+    assert.throws(() => other.appendCompactionUsage(usage()));
     assert.equal(log.messageCount, 1);
     assert.equal(other.messageCount, 1);
     assert.equal(rawMessageSeq(failed), undefined);

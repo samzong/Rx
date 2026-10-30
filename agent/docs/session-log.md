@@ -17,10 +17,7 @@ Multiple summary requests produce separate records.
 A response without a provider measurement cannot supply a usage record.
 Old logs cannot recover discarded measurements.
 
-The raw message count includes summary usage records.
-Checkpoint `through` uses that count.
 Resume slices the raw records at `through` before it excludes summary usage records.
-It excludes those records from complete conversational history and active working context.
 ACP keeps RX-ACP-004: summary requests do not measure working-context usage.
 
 Recall consumes assistant usage from `type: "message"` records, even when their content is empty.
@@ -35,7 +32,6 @@ This downgrade limitation does not change how the new reader loads old logs.
 
 Rx does not create forks, branches, child sessions, or subagents through CLI or ACP.
 Its headers therefore have no parent or fork field.
-The system prompt remains rebuilt under RX-LOG-001 and RX-RESUME-001.
 Recall does not need a stored system prompt for its current history and usage reader.
 A reproducible prompt snapshot would be a separate product contract.
 
@@ -44,7 +40,6 @@ A reproducible prompt snapshot would be a separate product contract.
 Ordinal N identifies the Nth complete `message` record in this session, starting at 1.
 Summary accounting records consume ordinals but have no visible historical content.
 Headers, `toolInput`, `compaction`, and `context_prune` records do not consume ordinals.
-Appending checkpoints or clearing selections never changes an existing ordinal.
 The single writer initializes an in-memory message count on create or open.
 Successful message and summary-accounting appends advance the count. Failed appends and control records do not advance it.
 Ordinary appends do not reread the full archive to allocate an ordinal.
