@@ -142,17 +142,10 @@ defaults: text input, zero cost, and 16384 max output tokens.
 Context compaction belongs to rx-agent under RX-COMPACT-001..005 in its own contract.
 The launcher keeps the request, plan, configuration, and exec path. Binary discovery follows RX-AGENT-001.
 RX-AGENT-002/003 continue to supply endpoint-scoped model metadata and context windows.
-An API name does not establish native provider compaction support.
-Summary requests use the selected agent model and endpoint without a second credential route.
-Versioned checkpoints and clearing selections stay in the agent's append-only v1 session log.
-The agent clears eligible older tool results before summaries and preserves original source ordinals.
 Its `recall_log` tool retrieves visible content from the current session without a Recall dependency or new ACP message types.
-Rebuildable retrieval files stay inside the agent-owned session directory.
 Summary usage uses additive v1 message fields under the [session log contract](../agent/docs/session-log.md).
 Initial CLI prompts follow the [agent CLI contract](../agent/docs/cli.md).
 The launcher preserves prompt arguments and `--` through the same request, install, plan, configuration, and exec path.
-Older Rx readers ignore checkpoints and replay the complete history, which can overflow again.
-This downgrade preserves the original records but does not preserve compaction behavior.
 
 MCP startup belongs to rx-agent under RX-MCP-001. It connects servers in parallel,
 skips failed servers, and reports sanitized warnings in CLI and ACP sessions.

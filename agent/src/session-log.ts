@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { uuidv7, type AssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CompactionCheckpoint } from "./context-control.ts";
-import { setMessageSources, type HistorySnapshot, type ProjectionSources } from "./context-source.ts";
+import { setMessageSources, type HistorySnapshot, type SourceRange } from "./context-source.ts";
 import { danglingToolCalls, sessionRecords, validateCheckpoint, validatePrune, type ContextPrune, type MessageEntry } from "./session-projection.ts";
 import { isAlive, tryLink } from "./pid-lock.ts";
 
@@ -253,7 +253,7 @@ export class SessionLog {
     this.appendRecord({ type: "message", at: new Date().toISOString(), origin: "model", purpose: "compaction", message });
   }
 
-  appendCheckpoint(summary: string, retained: AgentMessage[], sources?: ProjectionSources): CompactionCheckpoint {
+  appendCheckpoint(summary: string, retained: AgentMessage[], sources?: { summarySources: SourceRange[]; retainedSources: SourceRange[][] }): CompactionCheckpoint {
     const { values, end, size } = readLog(this.path);
     readHeader(this.path, values[0]);
     const { entries } = sessionRecords(values.slice(1), this.path);

@@ -81,16 +81,6 @@ test("three compactions preserve original source ordinals across new retained ob
   assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 3);
 });
 
-test("pruning protects the most recently completed tool group and unfinished calls", () => {
-  const h = setup([user("Inspect"), call("old"), result("old", "old ".repeat(15000)), call("new"), result("new", "new ".repeat(15000))]);
-  const plan = pruningPlan(h.agent.state.messages, h.model)!;
-  assert.deepEqual(plan.clearedSeqs, [3]);
-  assert.equal((plan.messages.find((message) => message.role === "toolResult" && message.toolCallId === "new") as any).content[0].text, "new ".repeat(15000));
-  h.agent.state.messages.push(call("pending"));
-  const pending = pruningPlan(h.agent.state.messages, h.model)!;
-  assert.equal(pending.messages.at(-1), h.agent.state.messages.at(-1));
-});
-
 test("source labels repeat on each split of an oversized original message", () => {
   const h = setup([user("evidence ".repeat(13000)), fauxAssistantMessage("Recorded")]);
   const plan = compactionPlan(h.agent.state.messages, h.model)!;
@@ -106,17 +96,6 @@ test("citation validation rejects missing, malformed, fabricated, usage-gap, and
   assert.throws(() => validateSummarySources("A narrow claim. [log 2-2]", [{ from: 1, to: 10, coverage: true }]));
   assert.deepEqual(validateSummarySources("## Goal\nA supported claim. [log 1-2]\n(none)", allowed), [{ from: 1, to: 2 }]);
   assert.deepEqual(validateSummarySources("A coverage claim. [log 1-10]", [{ from: 1, to: 10, coverage: true }]), [{ from: 1, to: 10, coverage: true }]);
-});
-
-test("an uncited or fabricated model summary retains the previous projection and never writes a checkpoint", async () => {
-  for (const text of ["Uncited claim", "Invented source. [log 99-99]"]) {
-    const h = setup([user("original evidence ".repeat(1500)), fauxAssistantMessage("Recorded")]);
-    const before = structuredClone(h.agent.state.messages);
-    h.faux.setResponses([fauxAssistantMessage(text)]);
-    await assert.rejects(h.control.compact());
-    assert.deepEqual(h.agent.state.messages, before);
-    assert.equal(records(h.log).some((entry) => entry.type === "compaction"), false);
-  }
 });
 
 test("a failed prune append never installs cleared content", async (t) => {

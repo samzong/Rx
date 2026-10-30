@@ -38,7 +38,6 @@ Tiny windows that cannot hold pi's summary request can still reach the native wo
 Rx reuses pi-coding-agent 1.4.0 `estimateTokens` and `generateSummaryWithUsage`.
 Rx converts source records to visible transcripts before the helper because its native serializer truncates tool results and omits images.
 Summary requests carry a capped model output limit because the helper does not set `maxTokens` itself.
-Summary requests select thinking off so a thinking allowance does not consume a small answer budget.
 The working request retains the user's thinking level.
 The prompt gives a character target that includes headings and source citations.
 It asks the model to describe bulk sample data instead of copying it.
@@ -55,13 +54,11 @@ That path also owns persistence, settings, and a session tree, which conflict wi
 A transient `transformContext` summary is smaller but loses its checkpoint after restart and repeats paid summary calls.
 Rx therefore keeps its own persisted projection and uses pi's public helpers without importing private preparation code.
 Revisit this choice if measured maintenance cost exceeds the value of owning context and session data.
-Eight summary requests cap one operation, including rejected citation attempts.
 Rx reserves one request for every planned chunk before it uses any spare request for a citation correction.
 Each chunk permits at most one correction. The correction receives the same original sources and the last valid summary.
 It receives the citation error and the allowed ranges, without the rejected draft.
 Provider failures, cancellation, empty output, output limits, and tool calls do not trigger a correction.
 A second citation failure ends the operation without a checkpoint. All measured attempts remain in the usage log.
-Oversized archives fail with their original history intact.
 No background compaction, separate summary model, native provider compaction, or cross-session memory is included.
 
 ## Clearing and source references
@@ -79,17 +76,12 @@ Otherwise Rx commits the selected savings and checks the remaining pressure, eve
 One large result can supply this saving. The rule limits small prefix edits, not the number of records in an event.
 It appends one selection, then installs `[cleared, log seq N]` as the result content.
 The tool identity, call ID, error state, timestamp, and native call pairing remain intact.
-Raw message lines never change.
 
 The next working request uses the cleared projection without a summary if its remaining pressure fits.
 Rx subtracts the estimated freed tokens from the valid working measurement plus estimates of newer messages.
-Without a valid measurement, it subtracts from the content estimate.
-Clearing never discards the triggering measurement in favor of a smaller pure estimate.
 A summary failure leaves an earlier committed clearing pass valid.
-Cancellation never replays the cleared tools.
 Clearing emits no compaction activity and no estimated ACP usage.
-It invalidates earlier working measurements. The next measured working response reports the changed context.
-Load folds the same selections and replays measurements only after the latest projection change.
+It invalidates earlier working measurements. Load folds the same selections and replays measurements only after the latest projection change.
 
 Source ordinals count complete `message` records, including summary accounting records.
 Summary inputs repeat their source labels in each chunk of a long message.

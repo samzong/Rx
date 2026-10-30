@@ -102,7 +102,14 @@ test("cancel stops a running tool and the prompt ends as cancelled", async () =>
     const pending = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "wait" }] });
     while (!updates.some((u) => u.update.sessionUpdate === "tool_call")) await new Promise((r) => setTimeout(r, 10));
     await ctx.notify(acp.methods.agent.session.cancel, { sessionId });
-    return { sessionId, response: await pending };
+    const response = await pending;
+    const calls = faux.state.callCount;
+    const path = join(home, "sessions", `${sessionId}.jsonl`);
+    const saved = readFileSync(path, "utf8");
+    await ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+    assert.equal(faux.state.callCount, calls);
+    assert.equal(readFileSync(path, "utf8"), saved);
+    return { sessionId, response };
   });
   assert.equal(response.stopReason, "cancelled");
   assert.ok(Date.now() - started < 10_000);
