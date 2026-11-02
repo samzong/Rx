@@ -12,6 +12,7 @@ import type { AcpSelection } from "./acp-state.ts";
 export const LODY_CAPABILITIES = {
   steering: { version: 1, transport: "request", upstreamTurn: "same", configPolicy: "active" },
   worktreeProject: { version: 1 },
+  usage: { version: 1 },
 };
 
 export const steerRequest = z.object({

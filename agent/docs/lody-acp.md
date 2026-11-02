@@ -1,6 +1,6 @@
 # Lody ACP extensions
 
-This document owns RX-ACP-005 under the [agent design contract](../DESIGN.md).
+This document owns RX-ACP-005 and RX-ACP-006 under the [agent design contract](../DESIGN.md).
 Rx uses ACP SDK 2.0.2 and the Lody extension contract from
 [`acp-extension-core` 0.3.0](https://github.com/LodyAI/acp-extension-core/tree/ea90d0b).
 `src/acp-lody.ts` constructs `agentCapabilities._meta.lody` in one place.
@@ -10,6 +10,7 @@ Rx advertises only these capabilities:
 | --- | --- | --- |
 | Steering | `{version:1, transport:"request", upstreamTurn:"same", configPolicy:"active"}` | Inject user input into the active prompt with its current configuration. |
 | Worktree project | `{version:1}` | Keep the logical project separate from the execution directory. |
+| Usage | `{version:1}` | Report cumulative usage per model within an accounting scope. |
 
 ## Steering
 
@@ -77,10 +78,50 @@ Load validation, tools, AGENTS.md discovery, and skills discovery still use that
 Lody uses the origin for project membership. It does not request a second source of project instructions.
 Using the origin for instruction discovery would change RX-CONTEXT-001 and RX-SKILL-001 without this requirement.
 
-## Cumulative usage
+## Usage
 
-This capability is reserved for a later PR and is not advertised here.
-Standard working-context measurements keep RX-ACP-004 semantics.
+Rx advertises `agentCapabilities._meta.lody.usage: {version: 1}` during `initialize`.
+After each live model response, Rx sends `_lody/session/usage_update` with these fields:
+
+- `sessionId` identifies the ACP session.
+- `usage` contains the latest request's measured token buckets and known cost.
+- `modelUsage` contains cumulative usage under `provider/model` keys.
+- `delta.usage` and `delta.modelUsage` contain the new contribution since the previous notification.
+- `_meta.lody.usageScopeId` identifies the current accounting lifetime.
+
+Each new or loaded session starts a random scope, even within the same process.
+Replay sends no extension usage and adds no historical requests to the new scope.
+Lody accounts for each scope separately. Compaction and model changes keep the active scope and cumulative totals.
+Counters include tool-loop requests, failed retry attempts, successful retries, and context-summary requests, including rejected summaries.
+Notifications share the ordered ACP output queue and finish before the prompt response.
+A failed notification aborts the running work through the existing connection-failure path.
+
+The token buckets are disjoint. Input excludes cache reads and writes.
+Output excludes reasoning tokens when pi-ai reports a reasoning breakdown.
+`cacheCreationInputTokens` includes all cache writes, including the one-hour subset.
+`costUSD` uses pi-ai's reported catalog estimate in USD, not an invoice.
+`rx-provider` marks placeholder prices for handoff models that lack matching pi-ai metadata.
+Rx omits their `costUSD` from request snapshots, cumulative totals, and deltas.
+Catalog prices remain known, including real zero prices. An absent or invalid cost also stays absent.
+If any request for a model has unknown cost, that model's cumulative cost and later delta costs stay unknown within the scope.
+Other models retain their known costs. Token accounting continues in either case.
+
+Standard `usage_update` retains RX-ACP-004: the latest working-context measurement and its context window, without costs.
+Summary requests do not update that context measurement.
+Clients must not add standard context measurements to cumulative usage or add `delta` to the same `modelUsage` snapshot twice.
+
+The wire contract follows [acp-extension-core 0.3.0](https://github.com/LodyAI/acp-extension-core/blob/ea90d0b23d4f850c66c0f542f53cbc596ef2c62f/src/usage.ts).
+Rx uses an internal accumulator because that package also requires SDK `^1.4.0` and exposes no separate usage entrypoint.
+The strongest alternative is its `SessionUsageAccumulator`, which merges repeated operation snapshots monotonically.
+Rx receives one completion per request directly from its request owners, so it needs only cumulative model buckets.
+This avoids a second SDK and an operation ledger that grows with every request.
+If a future source repeats or corrects completion snapshots, add operation identity before accounting for that source.
+
+For Lody acceptance, start an Rx session and complete two prompts.
+Make sure that the session's token statistics increase after the second prompt.
+For models with known pi-ai prices, make sure that the cost increases too.
+For handoff models with placeholder prices, make sure that request snapshots, cumulative totals, and deltas omit `costUSD`.
+Load the session and complete another prompt. Prior scopes remain separate from the new scope.
 
 ## Forks and turn identity
 
