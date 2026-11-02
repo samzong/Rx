@@ -99,6 +99,14 @@ export function promptInput(blocks: acp.ContentBlock[]): { text: string; images:
   const parts: string[] = [];
   const images: ImageContent[] = [];
   for (const block of blocks) {
+    if (!block || typeof block !== "object" || typeof block.type !== "string") throw acp.RequestError.invalidParams(undefined, "invalid prompt content block");
+    if (block.type === "text" && typeof block.text !== "string"
+      || block.type === "image" && (typeof block.data !== "string" || typeof block.mimeType !== "string")
+      || block.type === "resource_link" && (typeof block.name !== "string" || typeof block.uri !== "string")
+      || block.type === "resource" && (!block.resource || typeof block.resource !== "object" || typeof block.resource.uri !== "string"
+        || !("text" in block.resource ? typeof block.resource.text === "string" : "blob" in block.resource && typeof block.resource.blob === "string"))) {
+      throw acp.RequestError.invalidParams(undefined, "invalid prompt content block");
+    }
     if (block.type === "text") parts.push(block.text);
     else if (block.type === "image") images.push({ type: "image", data: block.data, mimeType: block.mimeType });
     else if (block.type === "resource_link") parts.push(`[${block.name}](${block.uri})`);

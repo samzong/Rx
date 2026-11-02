@@ -1,5 +1,5 @@
 import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { uuidv7, type AssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CompactionCheckpoint } from "./context-control.ts";
@@ -29,12 +29,20 @@ interface ToolInputEntry {
   input: Record<string, unknown>;
 }
 
+interface ProjectMetadata {
+  type: "session_metadata";
+  version: 1;
+  at: string;
+  originProjectPath: string;
+}
+
 export interface SessionInfo {
   id: string;
   cwd: string;
   createdAt: string;
   updatedAt: string;
   title: string;
+  originProjectPath?: string;
 }
 
 export interface LoadedSession {
@@ -147,6 +155,17 @@ function readHeader(path: string, value: unknown): SessionHeader {
   return header as SessionHeader;
 }
 
+function originProject(values: unknown[], path: string): string | undefined {
+  let origin: string | undefined;
+  for (const value of values) {
+    const entry = value as Partial<ProjectMetadata> | null;
+    if (entry?.type !== "session_metadata") continue;
+    if (entry.version !== 1 || typeof entry.originProjectPath !== "string" || !isAbsolute(entry.originProjectPath) || entry.originProjectPath.includes("\0")) throw new Error(`${path}: invalid project metadata`);
+    origin = entry.originProjectPath;
+  }
+  return origin;
+}
+
 function userText(message: AgentMessage): string | undefined {
   if (message.role !== "user") return undefined;
   if (typeof message.content === "string") return message.content;
@@ -159,6 +178,7 @@ export class SessionLog {
   readonly cwd: string;
   readonly createdAt: string;
   private readonly count: { value: number };
+  private originProjectPath?: string;
 
   private constructor(home: string, id: string, cwd: string, createdAt: string, messageCount: number) {
     this.home = home;
@@ -211,11 +231,13 @@ export class SessionLog {
     const [first, ...rest] = values;
     const header = readHeader(path, first);
     const { entries, inputs, messages, usageThrough } = sessionRecords(rest, path);
+    const originProjectPath = originProject(rest, path);
     const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const usageMessages = entries.slice(usageThrough).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const dangling = danglingToolCalls(history);
     if (end < size) truncateSync(path, end);
     const log = new SessionLog(home, header.id, header.cwd, header.createdAt, entries.length);
+    log.originProjectPath = originProjectPath;
     for (const call of dangling) {
       const result: ToolResultMessage = {
         role: "toolResult",
@@ -243,6 +265,12 @@ export class SessionLog {
 
   appendToolInput(toolCallId: string, input: Record<string, unknown>): void {
     this.appendRecord({ type: "toolInput", at: new Date().toISOString(), toolCallId, input });
+  }
+
+  recordOriginProject(originProjectPath: string | undefined): void {
+    if (originProjectPath === undefined || originProjectPath === this.originProjectPath) return;
+    this.appendRecord({ type: "session_metadata", version: 1, at: new Date().toISOString(), originProjectPath });
+    this.originProjectPath = originProjectPath;
   }
 
   appendCompactionUsage(response: AssistantMessage): void {
@@ -298,7 +326,7 @@ export class SessionLog {
     };
   }
 
-  private appendRecord(entry: MessageEntry | CompactionCheckpoint | ToolInputEntry | ContextPrune): void {
+  private appendRecord(entry: MessageEntry | CompactionCheckpoint | ToolInputEntry | ContextPrune | ProjectMetadata): void {
     const line = `${JSON.stringify(entry)}\n`;
     const size = statSync(this.path).size;
     try {
@@ -329,10 +357,11 @@ export function listSessions(home: string, cwd?: string): SessionInfo[] {
     try {
       const [first, ...rest] = readLog(path).values;
       const header = readHeader(path, first);
-      if (cwd && header.cwd !== cwd) continue;
+      const originProjectPath = originProject(rest, path);
+      if (cwd && header.cwd !== cwd && originProjectPath !== cwd) continue;
       const firstUser = sessionRecords(rest, path).entries.find((entry) => entry.origin !== "rx" && entry.message.role === "user")?.message;
       const title = (firstUser && skillInvocationText(userText(firstUser) ?? "").replace(/\s+/g, " ").trim().slice(0, 80)) || "(empty)";
-      sessions.push({ id, cwd: header.cwd, createdAt: header.createdAt, updatedAt: statSync(path).mtime.toISOString(), title });
+      sessions.push({ id, cwd: header.cwd, createdAt: header.createdAt, updatedAt: statSync(path).mtime.toISOString(), title, ...(originProjectPath ? { originProjectPath } : {}) });
     } catch (error) {
       process.stderr.write(`rx: skipping session ${id}: ${error instanceof Error ? error.message : String(error)}\n`);
     }

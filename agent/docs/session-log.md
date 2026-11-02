@@ -37,9 +37,13 @@ A reproducible prompt snapshot would be a separate product contract.
 
 ## Original message ordinals and retrieval
 
+Lody steering uses ordinary `acp` user messages. Version 1 logs also accept
+`session_metadata` records for the [logical project origin](lody-acp.md#logical-project-identity).
+Invalid project metadata fails before log repair.
+
 Ordinal N identifies the Nth complete `message` record in this session, starting at 1.
 Summary accounting records consume ordinals but have no visible historical content.
-Headers, `toolInput`, `compaction`, and `context_prune` records do not consume ordinals.
+Headers, `toolInput`, `compaction`, `context_prune`, and `session_metadata` records do not consume ordinals.
 The single writer initializes an in-memory message count on create or open.
 Successful message and summary-accounting appends advance the count. Failed appends and control records do not advance it.
 Ordinary appends do not reread the full archive to allocate an ordinal.

@@ -19,6 +19,7 @@ export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 import { expandSkillCommand, type SkillCommand } from "./skills.ts";
 import { isProviderFailure, retryControl, type RetryEvent } from "./retry.ts";
+import { initialSessionConfig, LODY_CAPABILITIES, sessionSteering, steerRequest, worktreeProject } from "./acp-lody.ts";
 
 export interface AcpOptions {
   home: string;
@@ -30,11 +31,13 @@ interface LiveSession {
   agent: Agent;
   log: SessionLog;
   running: boolean;
+  manual: boolean;
   cancelled: boolean;
   configuring: boolean;
   selection: AcpSelection;
   mcp: McpConnection;
   commands: SkillCommand[];
+  steering: ReturnType<typeof sessionSteering>;
 }
 
 type Update = acp.SessionUpdate;
@@ -112,7 +115,8 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>> }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>> }, servers: acp.McpServer[], signal: AbortSignal, meta: unknown, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
+    const originProjectPath = worktreeProject(meta);
     let choice: ModelChoice;
     let prompt: ReturnType<typeof systemPrompt>;
     try {
@@ -123,18 +127,20 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
     }
     const hooks = loadHooks(options.home);
-    const selection: AcpSelection = { ...choice, fast: false };
+    let selection: AcpSelection = { ...choice, fast: false };
     const supported = getSupportedThinkingLevels(selection.model);
     if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
     if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
+    selection = await initialSessionConfig(options.models, selection, meta, booleanSupported);
     const configuration = await snapshot(selection);
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     try {
       signal.throwIfAborted();
       const { log, messages, history = messages, usageMessages = messages, origins, inputs } = start();
+      log.recordOriginProject(originProjectPath);
       const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
-      const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, running: false, cancelled: false, configuring: false };
+      const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), running: false, manual: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
       return { live, history, usageMessages, origins, inputs, configuration };
     } catch (error) {
@@ -154,6 +160,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     .onConnect((connection) => {
       connection.signal.addEventListener("abort", () => {
         for (const live of sessions.values()) {
+          live.steering.clear();
           live.agent.abort();
           const control = contextControl(live.agent);
           control.abort();
@@ -172,13 +179,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           promptCapabilities: { image: available.some((model) => model.input.includes("image")), audio: false, embeddedContext: true },
           mcpCapabilities: { http: true, sse: false },
           sessionCapabilities: { list: {} },
+          _meta: { lody: LODY_CAPABILITIES },
         },
         authMethods: [],
         agentInfo: { name: "rx", title: "Rx", version: VERSION },
       };
     })
     .onRequest(acp.methods.agent.session.new, async ({ params, client, signal }) => {
-      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, true);
+      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, params._meta, true);
       await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: availableCommands(live.commands) });
       return { sessionId: live.log.id, ...configuration };
     })
@@ -193,7 +201,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         const { live, history, usageMessages, origins, inputs, configuration } = await open(cwd, () => {
           const loaded = SessionLog.open(options.home, params.sessionId);
           return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
-        }, params.mcpServers, signal);
+        }, params.mcpServers, signal, params._meta);
         live.configuring = true;
         try {
           await previous?.mcp.close();
@@ -235,8 +243,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         cwd: s.cwd,
         title: s.title,
         updatedAt: s.updatedAt,
+        ...(s.originProjectPath ? { _meta: { lody: { worktreeProject: { version: 1, originProjectPath: s.originProjectPath } } } } : {}),
       })),
     }))
+    .onRequest("_lody/session/steer", steerRequest, ({ params, client }) => {
+      const live = sessions.get(params.sessionId);
+      if (!live?.running || live.manual || live.cancelled) throw acp.RequestError.invalidRequest(undefined, "session has no running prompt");
+      return live.steering.inject(params, client);
+    })
     .onRequest(acp.methods.agent.session.prompt, async ({ params, client, signal }) => {
       const live = get(params.sessionId);
       if (live.running || live.configuring) throw acp.RequestError.invalidRequest(undefined, "session is already running a prompt or changing configuration");
@@ -246,6 +260,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       const manual = params.prompt.every((block) => block.type === "text") && text.trim() === "/compact";
       let pending = Promise.resolve();
       const abort = () => {
+        live.steering.clear();
         live.agent.abort();
         control.abort();
       };
@@ -272,6 +287,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         live.cancelled = true;
         abort();
       };
+      live.manual = manual;
       live.running = true;
       live.cancelled = false;
       signal.addEventListener("abort", onClose, { once: true });
@@ -300,6 +316,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         } finally {
           signal.removeEventListener("abort", onClose);
           live.running = false;
+          live.steering.clear();
         }
       }
       return { stopReason: (manual || hookControl(live.agent)?.rejected) ? (live.cancelled ? "cancelled" : "end_turn") : stopReason(live.agent.state.messages, live.cancelled) };
@@ -308,6 +325,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       const live = sessions.get(params.sessionId);
       if (!live?.running) return;
       live.cancelled = true;
+      live.steering.clear();
       live.agent.abort();
       contextControl(live.agent).abort();
     });
@@ -321,6 +339,7 @@ export function serveAcp(options: AcpOptions): { closed: Promise<void>; stop: ()
   const closed = connection.closed.then(async () => {
     await Promise.all([...sessions.values()].map(async (live) => {
       const control = contextControl(live.agent);
+      live.steering.clear();
       live.agent.abort();
       control.abort();
       await Promise.allSettled([live.agent.waitForIdle(), control.waitForIdle()]);
