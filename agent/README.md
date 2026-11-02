@@ -31,7 +31,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | CLI, REPL, print mode | Rx | `src/cli.ts`, `src/terminal.ts` | Not applicable. |
 | Provider handoff validation and transport error capture | Rx | `src/rx-provider.ts`, `src/transport-errors.ts` | Not applicable. |
 | ACP server: session controls, usage reports, cancel | Rx | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not applicable. |
-| Lody extensions: steering, startup configuration, worktree project | Rx | `src/acp-lody.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.0.2. |
+| Lody extensions: steering, startup configuration, worktree project, usage | Rx | `src/acp-lody.ts`, `src/acp-session-usage.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.0.2. |
 | Fast service tier injection | Rx | `src/acp-fast.ts` | Not applicable. |
 | Sandbox for tool execution | Not built | Tools run with your permissions (RX-PERM-001) | `ROADMAP.md`, after phase 1. |
 | Eval set and runner | Not built | No score exists for a change in behavior | `ROADMAP.md`, phase 1 B. |
@@ -40,4 +40,4 @@ borrowed package and the tracking location for a capability that does not exist.
 | Idempotency keys for external actions | Not built | A retried `git push` can run twice | `ROADMAP.md`, after phase 1. |
 | Plan mode, subagents, todo list, web search, LSP diagnostics | Not built, not scheduled | No tool or mode exists for these | None. |
 | Permission request over ACP | Contract limit | Tools run without a prompt (RX-ACP-001) | Not applicable. |
-| Cost in ACP usage reports | Contract limit | Tokens and context window only (RX-ACP-004) | Not applicable. |
+| Cost in ACP usage reports | Rx | Lody cumulative usage includes known costs (RX-ACP-006). Standard context reports omit costs (RX-ACP-004). | `src/acp-session-usage.ts`, [Lody contract](docs/lody-acp.md#usage). |

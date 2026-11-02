@@ -6,6 +6,17 @@ import { THINKING_LEVELS } from "./models.ts";
 
 export const PROVIDER_ENV = "RX_AGENT_PROVIDER";
 const DEFAULT_MAX_TOKENS = 16_384;
+const unknownCosts = new WeakSet<Model<Api>["cost"]>();
+
+function placeholderCost(): Model<Api>["cost"] {
+  const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  unknownCosts.add(cost);
+  return cost;
+}
+
+export function hasKnownModelCost(model: Model<Api>): boolean {
+  return !unknownCosts.has(model.cost);
+}
 const APIS = {
   "openai-completions": openAICompletionsApi,
   "openai-responses": () => withoutPromptCacheKey(openAIResponsesApi()),
@@ -146,7 +157,7 @@ export function applyHandoff(models: MutableModels, handoff: Handoff): void {
         thinkingLevelMap: model.thinkingLevelMap,
         compat: api === "anthropic-messages" && model.thinkingLevelMap ? { forceAdaptiveThinking: true } : undefined,
         input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        cost: placeholderCost(),
         contextWindow: model.contextWindow,
         maxTokens: DEFAULT_MAX_TOKENS,
       }

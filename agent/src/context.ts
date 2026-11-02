@@ -34,7 +34,7 @@ export function isContextOverflow(message: AssistantMessage): boolean {
   return message.stopReason === "error" && /\bcontext_length_exceeded\b|\bcontext_window_exceeded\b|\bprompt is too long\b|\binput length exceeds (?:the )?(?:maximum|max)\b/i.test(message.errorMessage ?? "");
 }
 
-export function installContextControl(agent: Agent, models: Models, log: SessionLog): void {
+export function installContextControl(agent: Agent, models: Models, log: SessionLog, onUsage?: (message: AssistantMessage) => void): void {
   const listeners = new Set<(event: CompactionEvent) => void>();
   const transport = transportDiagnostics();
   let summaryAbort: AbortController | undefined;
@@ -108,6 +108,7 @@ export function installContextControl(agent: Agent, models: Models, log: Session
                 }
                 const completed = await response.result();
                 log.appendCompactionUsage(completed);
+                onUsage?.(completed);
                 const failure = transport.takeFailure();
                 summarySignal.throwIfAborted();
                 if (completed.content.some((block) => block.type === "toolCall") || attemptedTool) throw new Error("The context summary attempted to call a tool");

@@ -2,14 +2,16 @@ import { realpathSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import { getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type AssistantMessage, type Models } from "@earendil-works/pi-ai";
 import { createRxAgent, systemPrompt } from "./agent.ts";
 import { formatModel, type ModelChoice } from "./models.ts";
 import { sessionConfigOptions, changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import type { AcpSelection } from "./acp-state.ts";
 import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
+import { SESSION_USAGE_METHOD, SessionUsage } from "./acp-session-usage.ts";
 import { listSessions, readSessionHeader, SessionLog, type Origin } from "./session-log.ts";
+import { hasKnownModelCost } from "./rx-provider.ts";
 import { VERSION } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
 import { loadHooks } from "./hook-config.ts";
@@ -38,6 +40,8 @@ interface LiveSession {
   mcp: McpConnection;
   commands: SkillCommand[];
   steering: ReturnType<typeof sessionSteering>;
+  usage: SessionUsage;
+  reportUsage?: (message: AssistantMessage) => void;
 }
 
 type Update = acp.SessionUpdate;
@@ -138,9 +142,9 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       signal.throwIfAborted();
       const { log, messages, history = messages, usageMessages = messages, origins, inputs } = start();
       log.recordOriginProject(originProjectPath);
-      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks, onUsage: (message) => live.reportUsage?.(message) });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
-      const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), running: false, manual: false, cancelled: false, configuring: false };
+      const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), usage: new SessionUsage(), running: false, manual: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
       return { live, history, usageMessages, origins, inputs, configuration };
     } catch (error) {
@@ -269,6 +273,10 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           .then(() => client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update }))
           .catch(abort);
       };
+      live.reportUsage = (message) => {
+        const update = live.usage.record(params.sessionId, message, hasKnownModelCost(live.agent.state.model));
+        if (update) pending = pending.then(() => client.notify(SESSION_USAGE_METHOD, update)).catch(abort);
+      };
       const unsubscribe = live.agent.subscribe((event) => {
         const updates = eventUpdates(live.log.cwd, event);
         if (event.type === "message_end" && event.message.role === "assistant") {
@@ -312,6 +320,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           unsubscribeCompaction();
           unsubscribeRetry();
           unsubscribeHooks?.();
+          live.reportUsage = undefined;
           await pending;
         } finally {
           signal.removeEventListener("abort", onClose);
