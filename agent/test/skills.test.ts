@@ -146,7 +146,25 @@ test("a /name prompt expands the skill body and round-trips to its invocation te
   assert.equal(expanded, `<skill name="greet" location="${file}">\nReferences are relative to ${join(file, "..")}.\n\nSay AHOY.\n</skill>\n\nmatey\nsecond line`);
   assert.equal(skillInvocationText(expanded), "/greet matey\nsecond line");
   assert.equal(skillInvocationText(expandSkillCommand("/greet", commands)), "/greet");
-  for (const input of ["/unknown args", "say /greet", "/greet/x", "/compact"]) assert.equal(expandSkillCommand(input, commands), input);
+  for (const input of ["/unknown args", "say /zzz", "/greet/x", "/compact", "see /greet/x and a/greet", "say /greet,"]) assert.equal(expandSkillCommand(input, commands), input);
+});
+
+test("mid-text /name tokens prepend each skill once and keep the typed text", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const greet = realpathSync(addSkill(cwd, ".agents/skills/greet", "greet", "Greet", "Say AHOY."));
+  const review = realpathSync(addSkill(cwd, ".agents/skills/review", "review", "Review", "Check it."));
+  const { commands } = skillCatalog([cwd], home);
+  const block = (name: string, file: string, body: string) => `<skill name="${name}" location="${file}">\nReferences are relative to ${join(file, "..")}.\n\n${body}\n</skill>`;
+  const greetBlock = block("greet", greet, "Say AHOY.");
+  const reviewBlock = block("review", review, "Check it.");
+  const mid = expandSkillCommand("please /review then\n/greet and /review /zzz", commands);
+  assert.equal(mid, `${reviewBlock}\n\n${greetBlock}\n\nplease /review then\n/greet and /review /zzz`);
+  assert.equal(skillInvocationText(mid), "please /review then\n/greet and /review /zzz");
+  const lead = expandSkillCommand("/greet then /review", commands);
+  assert.equal(lead, `${greetBlock}\n\n${reviewBlock}\n\nthen /review`);
+  assert.equal(skillInvocationText(lead), "/greet then /review");
+  assert.equal(skillInvocationText("plain /greet text"), "plain /greet text");
 });
 
 test("skills named after built-in commands get no slash command", () => {

@@ -38,7 +38,7 @@ built yet.
 | `src/credentials.ts` | rx-agent's credential store (`$RX_HOME/auth.json`) and installation id. |
 | `src/login.ts` | Terminal `login` flow: provider and method choice, prompts, browser and device-code links. |
 | `src/pid-lock.ts` | Pid lock primitives shared by session and credential locks. |
-| `src/terminal.ts` | REPL with `/` command and `@` path completion, and `-p` print mode. |
+| `src/terminal.ts`, `src/completion.ts` | REPL, `/` and `@` completion, `-p` print mode. |
 | `src/acp.ts` | Agent Client Protocol server over stdio. |
 | `src/acp-messages.ts` | ACP prompt, event, and history message conversion. |
 | `src/cli.ts` | Argument parsing and entrypoint. |

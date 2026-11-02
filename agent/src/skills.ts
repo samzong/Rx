@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { formatSkillsForPrompt, loadSkills, parseSkillBlock, stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { formatSkillsForPrompt, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 
 type SkillDiagnostic = ReturnType<typeof loadSkills>["diagnostics"][number];
 
@@ -142,17 +142,41 @@ export function skillCatalog(directories: string[], home: string = homedir()): {
   };
 }
 
-export function expandSkillCommand(input: string, commands: readonly SkillCommand[]): string {
-  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(input.trim());
-  const skill = match && commands.find(({ name }) => name === match[1]);
-  if (!skill) return input;
+const SKILL_TOKEN = /(?<=^|\s)\/([^\s/"]+)(?=\s|$)/gu;
+const SKILL_BLOCK = /<skill name="([^"]+)" location="[^"]+">\n[\s\S]*?\n<\/skill>(?:\n\n|$)/y;
+
+function skillBlock(skill: SkillCommand): string {
   const body = stripFrontmatter(readFileSync(skill.filePath, "utf8")).trim();
-  const block = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
-  const args = match[2]?.trim();
-  return args ? `${block}\n\n${args}` : block;
+  return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+}
+
+export function expandSkillCommand(input: string, commands: readonly SkillCommand[]): string {
+  const text = input.trim();
+  const find = (name: string | undefined) => commands.find((command) => command.name === name);
+  const leading = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
+  const lead = find(leading?.[1]);
+  const message = lead ? leading?.[2]?.trim() ?? "" : text;
+  const skills = lead ? [lead] : [];
+  for (const [, name] of message.matchAll(SKILL_TOKEN)) {
+    const skill = find(name);
+    if (skill && !skills.includes(skill)) skills.push(skill);
+  }
+  if (skills.length === 0) return input;
+  const blocks = skills.map(skillBlock).join("\n\n");
+  return message ? `${blocks}\n\n${message}` : blocks;
 }
 
 export function skillInvocationText(text: string): string {
-  const parsed = parseSkillBlock(text);
-  return parsed ? `/${parsed.name}${parsed.userMessage ? ` ${parsed.userMessage}` : ""}` : text;
+  const names: string[] = [];
+  SKILL_BLOCK.lastIndex = 0;
+  let match;
+  let end = 0;
+  while ((match = SKILL_BLOCK.exec(text))) {
+    names.push(match[1]!);
+    end = SKILL_BLOCK.lastIndex;
+  }
+  if (names.length === 0) return text;
+  const message = text.slice(end).trim();
+  const mentioned = [...message.matchAll(SKILL_TOKEN)].some(([, name]) => name === names[0]);
+  return mentioned ? message : `/${names[0]}${message ? ` ${message}` : ""}`;
 }

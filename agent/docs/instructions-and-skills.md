@@ -45,14 +45,18 @@ This contract adds no flags, environment variables, or hot reload.
 
 RX-SKILL-002: The REPL and ACP accept `/name [arguments]` for each loaded skill.
 Rx reads the current `SKILL.md`, removes its frontmatter, and sends the body in a `<skill name="..." location="...">` block, followed by the arguments.
+A `/name` token later in the text also loads that skill. A token starts after whitespace or at a line start and ends at whitespace or the end of the text.
+Rx puts one block for each named skill before the message, in order of first use, and sends the typed text unchanged.
 `disable-model-invocation: true` removes a skill from the catalog only. The user can still invoke it.
 `compact`, `exit`, and `quit` stay built-in commands. A skill with one of those names, or with a space, slash, or quote in its name, keeps its catalog entry, gets no slash command, and reports a diagnostic on stderr.
 A submitted `/name` that names no skill is ordinary model input. If the skill file cannot be read, Rx reports the error and sends nothing.
 The CLI initial prompt and `-p` do not expand skill commands.
-The session log stores the expanded block. Session titles and ACP load replay show `/name arguments`.
+The session log stores the expanded blocks. Session titles and ACP load replay show the typed text, or `/name arguments` for a leading command.
 UserPromptSubmit hooks receive the expanded text.
 ACP advertises `compact` and the skill commands in `available_commands_update` on new and load.
 The interactive REPL uses the pi-tui editor. It completes commands and skills after `/`, and paths under the session working directory after `@` when `fd` or `fdfind` is on `PATH`.
-While the `/` list is open, Enter submits the highlighted entry, as in pi and Claude Code. Only a `/name` with no match in the list reaches the model unchanged.
+At the start of the message, Enter in the `/` list submits the highlighted entry, as in pi and Claude Code. Only a `/name` with no match in the list reaches the model unchanged.
+A `/` or `@` after whitespace in the middle of the text, or a `/` at the start of a later line, also opens its list. A mid-text `/` list shows only names that start with the typed text, so a path such as `/opt` does not open it. In this list, Enter or Tab inserts the entry and a space, and does not submit. If no command or skill matches, Tab completes a path, as before.
+Esc, a typed space, or Shift+Space closes any list. Undo also closes it. A space inside an open `@"` quoted path keeps the list open. After Esc, the list opens again when you type or delete a character in the same token.
 Piped input keeps line reading without completion.
-Claude Code uses the same `/name` form. pi uses `/skill:name`, Codex uses `$name`, and OpenCode lists skills in `@` completion.
+Claude Code uses the same `/name` form, but a mid-text `/name` only gives the model permission to run the skill. pi uses `/skill:name` at the start only. Codex uses `$name` anywhere in the text. OpenCode lists skills in `@` completion. deepseek-harness loads a `/name` anywhere in the text, as Rx does.

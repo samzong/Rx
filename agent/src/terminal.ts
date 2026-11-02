@@ -111,12 +111,13 @@ const editorTheme = {
 };
 
 async function readEditor(commands: readonly SkillCommand[], history: readonly string[], cwd: string, fdPath: string | null): Promise<string | undefined> {
-  const { CombinedAutocompleteProvider, Editor, matchesKey, ProcessTerminal, TuiMainScreen } = await import("@earendil-works/pi-tui");
+  const { matchesKey, ProcessTerminal, TuiMainScreen } = await import("@earendil-works/pi-tui");
+  const { RxAutocompleteProvider, RxEditor } = await import("./completion.ts");
   const terminal = new ProcessTerminal();
   const tui = new TuiMainScreen(terminal);
-  const editor = new Editor(tui, editorTheme, { paddingX: 0 });
+  const editor = new RxEditor(tui, editorTheme, { paddingX: 0 });
   const items = [EXIT, QUIT, COMPACT, ...commands.map(({ name, description }) => ({ name, description }))];
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider(items, cwd, fdPath));
+  editor.setAutocompleteProvider(new RxAutocompleteProvider(items, cwd, fdPath));
   for (const entry of history) editor.addToHistory(entry);
   tui.addChild(editor);
   tui.setFocus(editor);
