@@ -18,6 +18,7 @@ import { eventUpdates, historyUpdates, promptInput, toolInputUpdate } from "./ac
 export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 import { expandSkillCommand, type SkillCommand } from "./skills.ts";
+import { isProviderFailure, retryControl, type RetryEvent } from "./retry.ts";
 
 export interface AcpOptions {
   home: string;
@@ -51,7 +52,15 @@ function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReaso
   if (last?.role !== "assistant") return "end_turn";
   if (last.stopReason === "aborted") return "cancelled";
   if (last.stopReason === "length") return "max_tokens";
-  if (last.stopReason === "error") throw acp.RequestError.internalError(undefined, last.errorMessage ?? "model request failed");
+  if (last.stopReason === "error") {
+    if (!isProviderFailure(last)) throw acp.RequestError.internalError(undefined, last.errorMessage);
+    const detail = last.errorMessage ?? "The model request failed";
+    const hint = /\b401\b|\b403\b|api.?key|unauthori[sz]ed|authentication/i.test(detail)
+      ? " Check the provider credential and try again."
+      : /quota|billing|balance|budget|usage.?limit/i.test(detail) ? " Check the provider balance or account limit before trying again." : "";
+    const separator = hint && !/[.!?]$/.test(detail.trimEnd()) ? "." : "";
+    throw new acp.RequestError(-32010, `Model provider request failed: ${detail}${separator}${hint}`, { type: "provider_error" });
+  }
   return "end_turn";
 }
 
@@ -72,6 +81,17 @@ function compactionUpdate(event: CompactionEvent, supported: boolean, cancelled:
     status: event.status,
     ...(event.message ? { content: [{ type: "content", content: { type: "text", text: event.message } }] } : {}),
     _meta: { lody: { activity: { version: 1, kind: "context_compaction" } } },
+  };
+}
+
+function retryUpdate(event: RetryEvent): Update {
+  return {
+    sessionUpdate: event.status === "in_progress" && event.attempt === 1 ? "tool_call" : "tool_call_update",
+    toolCallId: event.id,
+    title: `Retrying model request (${event.attempt}/${event.maxAttempts})`,
+    kind: "other",
+    status: event.status,
+    _meta: { lody: { activity: { version: 1, kind: "retry" } } },
   };
 }
 
@@ -243,6 +263,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         for (const update of updates) notify(update);
         return pending;
       });
+      const unsubscribeRetry = retryControl(live.agent).subscribe((event) => notify(retryUpdate(event)));
       const unsubscribeCompaction = control.subscribe((event) => notify(compactionUpdate(event, compactionSupported, live.cancelled)));
       const unsubscribeHooks = hookControl(live.agent)?.subscribe((notice) => notify("text" in notice
         ? { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${notice.text}\n` } }
@@ -273,6 +294,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           await Promise.all([live.agent.waitForIdle(), control.waitForIdle()]);
           unsubscribe();
           unsubscribeCompaction();
+          unsubscribeRetry();
           unsubscribeHooks?.();
           await pending;
         } finally {

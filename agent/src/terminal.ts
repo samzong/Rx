@@ -7,6 +7,7 @@ import { hookControl, isHookContext } from "./hooks.ts";
 import { formatModel } from "./models.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
 import { expandSkillCommand, type SkillCommand } from "./skills.ts";
+import { retryControl } from "./retry.ts";
 
 const dim = (value: string) => (stderr.isTTY ? `\x1b[2m${value}\x1b[22m` : value);
 
@@ -57,6 +58,9 @@ function renderCompaction(event: CompactionEvent): void {
 
 export async function runPrint(agent: Agent, prompt: string): Promise<number> {
   const control = contextControl(agent);
+  const unsubscribeRetry = retryControl(agent).subscribe((event) => {
+    if (event.status === "in_progress") stderr.write(dim(`Retrying model request (${event.attempt}/${event.maxAttempts}) in ${event.delayMs / 1000}s\n`));
+  });
   const unsubscribe = agent.subscribe((event) => render(event, false));
   const unsubscribeCompaction = control.subscribe(renderCompaction);
   const unsubscribeHooks = hookControl(agent)?.subscribe((notice) => {
@@ -73,6 +77,7 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
     await Promise.all([agent.waitForIdle(), control.waitForIdle()]);
     process.off("SIGINT", onSigint);
     unsubscribe();
+    unsubscribeRetry();
     unsubscribeCompaction();
     unsubscribeHooks?.();
   }
@@ -169,6 +174,9 @@ export async function runRepl(agent: Agent, banner: string, commands: readonly S
     closed = true;
     if (running) abort();
   });
+  const unsubscribeRetry = retryControl(agent).subscribe((event) => {
+    if (event.status === "in_progress") stderr.write(dim(`Retrying model request (${event.attempt}/${event.maxAttempts}) in ${event.delayMs / 1000}s\n`));
+  });
   const unsubscribe = agent.subscribe((event) => render(event, true));
   const unsubscribeHooks = hookControl(agent)?.subscribe((notice) => {
     if ("text" in notice) stderr.write(`${notice.text}\n`);
@@ -236,6 +244,7 @@ export async function runRepl(agent: Agent, banner: string, commands: readonly S
     await Promise.all([agent.waitForIdle(), control.waitForIdle()]);
     process.off("SIGINT", onSigint);
     unsubscribe();
+    unsubscribeRetry();
     unsubscribeCompaction();
     unsubscribeHooks?.();
     rl?.close();

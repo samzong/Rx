@@ -21,7 +21,7 @@ built yet.
 
 | Module | Role |
 | --- | --- |
-| `src/agent.ts` | Builds the pi-agent-core `Agent`: system prompt, model stream, tools, and log subscription. |
+| `src/agent.ts`, `src/retry.ts` | Builds the pi-agent-core `Agent`, bounded model requests, tools, and log subscription. |
 | `src/context.ts` | Owns request budgets, clearing before summaries, source citations, projection installation, cancellation, and overflow recovery. |
 | `src/context-control.ts` | Defines the internal context controls and lifecycle events. |
 | `src/transport-errors.ts` | Captures safe HTTP transport causes before provider adapters discard them. |
@@ -146,13 +146,19 @@ The public fetch hook avoids a dependency fork and gives Rx a narrow boundary fo
 Each agent reuses one fetch wrapper so that provider clients retain their authentication caches without sharing failure state between sessions.
 If a needed cause remains unavailable or an adapter changes its fetch support, revisit that choice.
 
-Transport failures do not gain automatic retries. Context overflow permits the recovery in RX-COMPACT-004.
-Citation corrections follow RX-COMPACT-003 and do not retry transport failures.
-pi-ai supports bounded provider retries, but its current default is zero.
-The original connection failure did not retain enough evidence to establish that a retry was safe or useful.
-Repeated failures with a known transient cause are the signal to reconsider transport retries.
-Cancellation keeps its existing aborted result and does not gain a connection diagnostic.
-SDK timeouts and aborts keep pi-ai's own error message.
+Working model requests retry transient provider and transport failures at most three times, after 2, 4, and 8 seconds.
+Rx uses pi-ai's public `retryAssistantCall` and error classification around each `streamSimple` request, with provider retries disabled.
+Context overflow keeps RX-COMPACT-004 recovery. Authentication, quota, invalid requests, and certificate failures do not retry.
+The owner selected retries to recover interrupted turns.
+Provider `maxRetries` omits response-body recovery and retry events.
+
+Cancellation stops waits and requests. A cancelled wait logs an empty `aborted` message. A live response retains text and drops unfinished tool calls.
+Failed attempts retain safe diagnostics and usage. pi-ai excludes them from provider input.
+Tools execute only after a successful response, so retries retain completed tool results.
+ACP reports retries as activities. Only terminal working model failures use `-32010` (`provider_error`) and credential or quota guidance. Internal errors use `-32603`.
+Terminals report each wait.
+Delivered text cannot be withdrawn. Retry activity separates a partial answer from the complete retry.
+Three extra requests bound retry charges. Summary limits follow RX-COMPACT-003.
 
 ## Context compaction
 

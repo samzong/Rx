@@ -33,7 +33,9 @@ test("every measured summary response is logged before success, failure, output 
     const original = structuredClone(agent.state.messages);
     const response = { ...summary(), stopReason: outcome === "over-budget" || outcome === "cancel" ? "stop" as const : outcome };
     response.usage = { ...response.usage, input: 123, output: outcome === "over-budget" ? 10000 : 12, cacheRead: 30, cacheWrite: 4, totalTokens: 169 };
+    let attempts = 0;
     t.mock.method(models, "streamSimple", () => {
+      attempts++;
       const stream = createAssistantMessageEventStream();
       queueMicrotask(() => {
         if (outcome === "cancel") control.abort();
@@ -47,11 +49,16 @@ test("every measured summary response is logged before success, failure, output 
     else await assert.rejects(control.compact());
     const entries = records(log);
     const usage = entries.filter((entry) => entry.purpose === "compaction");
-    assert.equal(usage.length, 1, outcome);
-    assert.equal(usage[0].message.usage.input, 123);
-    assert.equal(usage[0].message.usage.cacheRead, 30);
-    assert.equal(usage[0].message.usage.cacheWrite, 4);
-    assert.deepEqual(usage[0].message.content, []);
+    const budgetFailure = outcome === "length" || outcome === "over-budget";
+    const expectedAttempts = budgetFailure ? 2 : 1;
+    assert.equal(attempts, expectedAttempts, outcome);
+    assert.equal(usage.length, expectedAttempts, outcome);
+    for (const entry of usage) {
+      assert.equal(entry.message.usage.input, 123);
+      assert.equal(entry.message.usage.cacheRead, 30);
+      assert.equal(entry.message.usage.cacheWrite, 4);
+      assert.deepEqual(entry.message.content, []);
+    }
     assert.equal(entries.filter((entry) => entry.type === "compaction").length, outcome === "stop" ? 1 : 0);
     if (outcome !== "stop") {
       assert.deepEqual(agent.state.messages.slice(0, original.length), original);
@@ -91,6 +98,7 @@ test("automatic compaction commits before the working request and survives load 
       assert.equal(called.maxTokens, contextBudget(model).summary);
       assert.equal(options?.reasoning, undefined);
       assert.ok(!context.messages.some((message) => message.role === "system" && message.toolsAdded?.length));
+      if (summaryCalls === 1) return fauxAssistantMessage(`Rejected draft. ${"oversized content ".repeat(8000)}`);
       return summary();
     }
     assert.ok(records(log).some((entry) => entry.type === "compaction"));
@@ -155,7 +163,7 @@ test("empty, truncated, tool-calling, and failed summaries preserve history whil
     fauxAssistantMessage([fauxToolCall("bash", { command: "touch forbidden" })], { stopReason: "toolUse" }),
     fauxAssistantMessage("x".repeat(10000)),
   ];
-  for (const response of invalid) {
+  for (const [index, response] of invalid.entries()) {
     const { agent, faux, control, log } = setup(16384, history());
     const before = readFileSync(log.path, "utf8");
     const active = JSON.stringify(agent.state.messages);
@@ -168,7 +176,7 @@ test("empty, truncated, tool-calling, and failed summaries preserve history whil
     assert.deepEqual(SessionLog.open(log.home, log.id).history, JSON.parse(active).filter((message: AgentMessage) => message.role !== "system"));
     assert.equal(JSON.stringify(agent.state.messages), active);
     assert.equal(events.at(-1)?.status, "failed");
-    assert.equal(faux.state.callCount, 1);
+    assert.equal(faux.state.callCount, index === 1 || index === 4 ? 2 : 1);
   }
 });
 
