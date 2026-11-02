@@ -7,8 +7,8 @@
 ## Install
 
 Prebuilt binaries need no Rust, Bun, or pnpm. Download the matching archives
-from [Rx v0.2.0](https://github.com/samzong/Rx/releases/tag/v0.2.0) and
-[rx-agent v0.1.2](https://github.com/samzong/Rx/releases/tag/rx-agent-v0.1.2).
+from [Rx v0.2.1](https://github.com/samzong/Rx/releases/tag/v0.2.1) and
+[rx-agent v0.2.0](https://github.com/samzong/Rx/releases/tag/rx-agent-v0.2.0).
 Rx archives contain only `rx`. Install both binaries for the steps below.
 
 | Platform | Rx archive | rx-agent archive |
