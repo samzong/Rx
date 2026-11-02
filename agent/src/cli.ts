@@ -190,14 +190,14 @@ async function main(argv: string[]): Promise<number> {
     const loaded = resumeId ? SessionLog.open(home, resumeId) : undefined;
     const log = loaded?.log ?? SessionLog.create(home, cwd);
     if (log.cwd !== cwd) process.stderr.write(`note: session ${log.id} was started in ${log.cwd}; tools run there\n`);
-    agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt, log, origin: "cli", messages: loaded?.messages, tools: mcp.tools, hooks });
+    agent = createRxAgent({ ...choice, models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "cli", messages: loaded?.messages, tools: mcp.tools, hooks });
     await hookControl(agent)?.start(resumeId ? "resume" : "startup", startup.signal);
     process.off("SIGINT", cancelStartup);
     if (values.print !== undefined) return await runPrint(agent, values.print);
     const banner = loaded
       ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
       : `rx ${VERSION} · session ${log.id}`;
-    await runRepl(agent, banner, initialPrompt);
+    await runRepl(agent, banner, prompt.commands, agentCwd, initialPrompt);
     return 0;
   } finally {
     process.off("SIGINT", cancelStartup);

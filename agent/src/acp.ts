@@ -17,6 +17,7 @@ import { hookControl } from "./hooks.ts";
 import { eventUpdates, historyUpdates, promptInput, toolInputUpdate } from "./acp-messages.ts";
 export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
+import { expandSkillCommand, type SkillCommand } from "./skills.ts";
 
 export interface AcpOptions {
   home: string;
@@ -32,11 +33,17 @@ interface LiveSession {
   configuring: boolean;
   selection: AcpSelection;
   mcp: McpConnection;
+  commands: SkillCommand[];
 }
 
 type Update = acp.SessionUpdate;
 
-const COMMANDS: acp.AvailableCommand[] = [{ name: "compact", description: "Compact the conversation context" }];
+function availableCommands(skills: readonly SkillCommand[]): Update {
+  return {
+    sessionUpdate: "available_commands_update",
+    availableCommands: [{ name: "compact", description: "Compact the conversation context" }, ...skills.map(({ name, description }) => ({ name, description }))],
+  };
+}
 
 function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReason {
   if (cancelled) return "cancelled";
@@ -87,7 +94,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
 
   const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>> }, servers: acp.McpServer[], signal: AbortSignal, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
     let choice: ModelChoice;
-    let prompt: string;
+    let prompt: ReturnType<typeof systemPrompt>;
     try {
       choice = await options.choose();
       if (requireCwd) realpathSync(cwd);
@@ -105,9 +112,9 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     try {
       signal.throwIfAborted();
       const { log, messages, history = messages, usageMessages = messages, origins, inputs } = start();
-      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
-      const live: LiveSession = { agent, log, selection, mcp, running: false, cancelled: false, configuring: false };
+      const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, running: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
       return { live, history, usageMessages, origins, inputs, configuration };
     } catch (error) {
@@ -152,7 +159,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     })
     .onRequest(acp.methods.agent.session.new, async ({ params, client, signal }) => {
       const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, true);
-      await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS } });
+      await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: availableCommands(live.commands) });
       return { sessionId: live.log.id, ...configuration };
     })
     .onRequest(acp.methods.agent.session.load, async ({ params, client, signal }) => {
@@ -175,7 +182,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           }
           const usage = latestUsageUpdate(usageMessages, live.selection.model);
           if (usage) await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: usage });
-          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS } });
+          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: availableCommands(live.commands) });
           return configuration;
         } finally {
           live.configuring = false;
@@ -256,7 +263,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           }
           if (!live.cancelled) {
             if (manual) await control.compact();
-            else await live.agent.prompt(text, images);
+            else await live.agent.prompt(expandSkillCommand(text, live.commands), images);
           }
         }
       } catch (error) {

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { skillCatalog } from "../src/skills.ts";
+import { expandSkillCommand, skillCatalog, skillInvocationText } from "../src/skills.ts";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "rx-skills-"));
@@ -134,4 +134,39 @@ test("a broken search-root symlink produces a located diagnostic", () => {
   assert.equal(result.prompt, "");
   assert.equal(result.diagnostics.length, 1);
   assert.ok(result.diagnostics[0]!.includes(root));
+});
+
+test("a /name prompt expands the skill body and round-trips to its invocation text", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const file = realpathSync(addSkill(cwd, ".agents/skills/greet", "greet", "Greet the user", "Say AHOY.", "disable-model-invocation: true\n"));
+  const { commands } = skillCatalog([cwd], home);
+  assert.deepEqual(commands.map(({ name, description }) => [name, description]), [["greet", "Greet the user"]]);
+  const expanded = expandSkillCommand("  /greet  matey\nsecond line ", commands);
+  assert.equal(expanded, `<skill name="greet" location="${file}">\nReferences are relative to ${join(file, "..")}.\n\nSay AHOY.\n</skill>\n\nmatey\nsecond line`);
+  assert.equal(skillInvocationText(expanded), "/greet matey\nsecond line");
+  assert.equal(skillInvocationText(expandSkillCommand("/greet", commands)), "/greet");
+  for (const input of ["/unknown args", "say /greet", "/greet/x", "/compact"]) assert.equal(expandSkillCommand(input, commands), input);
+});
+
+test("skills named after built-in commands get no slash command", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const file = realpathSync(addSkill(cwd, ".agents/skills/exit", "exit"));
+  const result = skillCatalog([cwd], home);
+  assert.deepEqual(result.commands, []);
+  assert.match(result.prompt, /exit description/);
+  assert.deepEqual(result.diagnostics, [`${file}: /exit is a built-in command; the skill has no slash command`]);
+  assert.equal(expandSkillCommand("/exit", result.commands), "/exit");
+});
+
+test("skills whose names cannot be typed as one token get no slash command", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const file = realpathSync(addSkill(cwd, ".agents/skills/spaced", "my skill"));
+  const result = skillCatalog([cwd], home);
+  assert.deepEqual(result.commands, []);
+  assert.match(result.prompt, /my skill/);
+  assert.ok(result.diagnostics.includes(`${file}: "my skill" contains a space, slash, or quote; the skill has no slash command`), result.diagnostics.join("\n"));
+  assert.equal(expandSkillCommand("/my skill hi", result.commands), "/my skill hi");
 });

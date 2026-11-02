@@ -38,7 +38,7 @@ built yet.
 | `src/credentials.ts` | rx-agent's credential store (`$RX_HOME/auth.json`) and installation id. |
 | `src/login.ts` | Terminal `login` flow: provider and method choice, prompts, browser and device-code links. |
 | `src/pid-lock.ts` | Pid lock primitives shared by session and credential locks. |
-| `src/terminal.ts` | REPL and `-p` print mode. |
+| `src/terminal.ts` | REPL with `/` command and `@` path completion, and `-p` print mode. |
 | `src/acp.ts` | Agent Client Protocol server over stdio. |
 | `src/acp-messages.ts` | ACP prompt, event, and history message conversion. |
 | `src/cli.ts` | Argument parsing and entrypoint. |
@@ -67,6 +67,7 @@ built yet.
 | RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Costs are omitted. Load replays the latest matching measurement after the latest checkpoint or clearing selection. Summary requests do not report working-context usage. Measurements before a projection change are no longer current. Clearing emits no estimated usage. Image input requires the current model's image capability. |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
+| RX-SKILL-002 | REPL and ACP `/name` skill commands. [Full contract](docs/instructions-and-skills.md). |
 | RX-HOOK-001 | User command hooks use one read-only configuration snapshot, fail closed before execution, may replace pre-tool input, preserve completed tool output, persist labeled context, and cancel process groups. [Full contract](docs/hooks.md). |
 | RX-MCP-001 | User and ACP MCP servers supply session tools through pi-mcp. Startup failures skip the failed server and produce a warning. See the full [MCP contract](docs/mcp.md#contract). |
 

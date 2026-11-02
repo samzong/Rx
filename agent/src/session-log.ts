@@ -6,6 +6,7 @@ import type { CompactionCheckpoint } from "./context-control.ts";
 import { setMessageSources, type HistorySnapshot, type SourceRange } from "./context-source.ts";
 import { danglingToolCalls, sessionRecords, validateCheckpoint, validatePrune, type ContextPrune, type MessageEntry } from "./session-projection.ts";
 import { isAlive, tryLink } from "./pid-lock.ts";
+import { skillInvocationText } from "./skills.ts";
 
 export { checkpointMessages, danglingToolCalls } from "./session-projection.ts";
 
@@ -330,7 +331,7 @@ export function listSessions(home: string, cwd?: string): SessionInfo[] {
       const header = readHeader(path, first);
       if (cwd && header.cwd !== cwd) continue;
       const firstUser = sessionRecords(rest, path).entries.find((entry) => entry.origin !== "rx" && entry.message.role === "user")?.message;
-      const title = (firstUser && userText(firstUser)?.replace(/\s+/g, " ").trim().slice(0, 80)) || "(empty)";
+      const title = (firstUser && skillInvocationText(userText(firstUser) ?? "").replace(/\s+/g, " ").trim().slice(0, 80)) || "(empty)";
       sessions.push({ id, cwd: header.cwd, createdAt: header.createdAt, updatedAt: statSync(path).mtime.toISOString(), title });
     } catch (error) {
       process.stderr.write(`rx: skipping session ${id}: ${error instanceof Error ? error.message : String(error)}\n`);

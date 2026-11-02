@@ -42,3 +42,17 @@ The simpler upstream default resource loader has different instruction paths and
 The `read` tool opens skill bodies by absolute path. References are relative to the skill directory.
 Skills add no tools or permissions. Without a skill command, disabled skills require an ordinary user request supplying the file.
 This contract adds no flags, environment variables, or hot reload.
+
+RX-SKILL-002: The REPL and ACP accept `/name [arguments]` for each loaded skill.
+Rx reads the current `SKILL.md`, removes its frontmatter, and sends the body in a `<skill name="..." location="...">` block, followed by the arguments.
+`disable-model-invocation: true` removes a skill from the catalog only. The user can still invoke it.
+`compact`, `exit`, and `quit` stay built-in commands. A skill with one of those names, or with a space, slash, or quote in its name, keeps its catalog entry, gets no slash command, and reports a diagnostic on stderr.
+A submitted `/name` that names no skill is ordinary model input. If the skill file cannot be read, Rx reports the error and sends nothing.
+The CLI initial prompt and `-p` do not expand skill commands.
+The session log stores the expanded block. Session titles and ACP load replay show `/name arguments`.
+UserPromptSubmit hooks receive the expanded text.
+ACP advertises `compact` and the skill commands in `available_commands_update` on new and load.
+The interactive REPL uses the pi-tui editor. It completes commands and skills after `/`, and paths under the session working directory after `@` when `fd` or `fdfind` is on `PATH`.
+While the `/` list is open, Enter submits the highlighted entry, as in pi and Claude Code. Only a `/name` with no match in the list reaches the model unchanged.
+Piped input keeps line reading without completion.
+Claude Code uses the same `/name` form. pi uses `/skill:name`, Codex uses `$name`, and OpenCode lists skills in `@` completion.

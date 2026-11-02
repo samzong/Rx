@@ -4,6 +4,7 @@ import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { isHookContext } from "./hooks.ts";
 import type { Origin } from "./session-log.ts";
+import { skillInvocationText } from "./skills.ts";
 
 type Update = acp.SessionUpdate;
 
@@ -59,7 +60,7 @@ export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: 
       for (const block of blocks) {
         updates.push({
           sessionUpdate: origins?.[index] === "rx" ? "agent_message_chunk" : "user_message_chunk",
-          content: block.type === "text" ? { type: "text", text: block.text } : { type: "image", data: block.data, mimeType: block.mimeType },
+          content: block.type === "text" ? { type: "text", text: skillInvocationText(block.text) } : { type: "image", data: block.data, mimeType: block.mimeType },
         });
       }
     } else if (message.role === "assistant") {
