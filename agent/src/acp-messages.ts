@@ -5,6 +5,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { isHookContext } from "./hooks.ts";
 import type { Origin } from "./session-log.ts";
 import { skillInvocationText } from "./skills.ts";
+import { todoUpdate } from "./todo.ts";
 import { rawMessageSeq } from "./context-source.ts";
 import type { SessionTurn } from "./session-turns.ts";
 import { lodyMeta, turnUpdate } from "./acp-lody.ts";
@@ -90,6 +91,8 @@ export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: 
       }
     } else if (message.role === "toolResult") {
       updates.push(toolCallEnd(message.toolCallId, message.isError, message.content));
+      const plan = message.toolName === "todo" && !message.isError ? todoUpdate(message.details) : undefined;
+      if (plan) updates.push(plan);
     }
   }
   for (const turn of turns.slice(turnIndex)) updates.push(turnUpdate(turn.id));
@@ -105,7 +108,12 @@ export function eventUpdates(cwd: string, event: AgentEvent): Update[] {
     return [];
   }
   if (event.type === "tool_execution_start") return [toolCallStart(cwd, event.toolCallId, event.toolName, event.args, "in_progress")];
-  if (event.type === "tool_execution_end") return [toolCallEnd(event.toolCallId, event.isError, event.result?.content)];
+  if (event.type === "tool_execution_end") {
+    const updates = [toolCallEnd(event.toolCallId, event.isError, event.result?.content)];
+    const plan = event.toolName === "todo" && !event.isError ? todoUpdate(event.result?.details) : undefined;
+    if (plan) updates.push(plan);
+    return updates;
+  }
   if (event.type === "tool_execution_update") return [{ sessionUpdate: "tool_call_update", toolCallId: event.toolCallId, status: "in_progress", content: resultContent(event.partialResult.content) }];
   return [];
 }

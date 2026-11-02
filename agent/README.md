@@ -20,7 +20,8 @@ borrowed package and the tracking location for a capability that does not exist.
 | MCP client: stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
 | Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
 | Historical content by original ordinal: `recall_log`, current session only | Rx | `src/session-history.ts` | Not applicable. |
-| Tools: `read`, `write`, `edit`, `bash`, local image input | Rx | `src/tools.ts` | Not applicable. |
+| Tools: `read`, `write`, `edit`, `bash`, `todo`, local image input | Rx | `src/tools.ts`, `src/todo.ts` | Not applicable. |
+| Task lists and structured questions: `todo`, ACP `ask_user` | Rx | `src/todo.ts`, `src/acp-elicitation.ts`, `src/acp-messages.ts` | [Lody ACP contract](docs/lody-acp.md). |
 | System prompt, `AGENTS.md` and `CLAUDE.md` discovery, `@path` expansion | Rx | `src/agent.ts`, `src/instructions.ts` | Not applicable. |
 | Skill discovery, precedence, collision reports | Rx | `src/skills.ts` | Not applicable. |
 | Compaction: clear old tool output first, summarize with original source references, checkpoints, overflow recovery, `/compact` | Rx | `src/context.ts`, `src/context-control.ts` | Not applicable. |
@@ -38,6 +39,6 @@ borrowed package and the tracking location for a capability that does not exist.
 | rx-agent through ACP in Lody | Rx | `src/acp.ts`, `src/acp-config.ts`, `src/acp-fast.ts`, `src/acp-usage.ts` | In use in Lody. `ROADMAP.md`, phase 1 A. |
 | Cross-session memory | Not built | A session loads one log at a time | `ROADMAP.md`, after phase 1. |
 | Idempotency keys for external actions | Not built | A retried `git push` can run twice | `ROADMAP.md`, after phase 1. |
-| Plan mode, subagents, todo list, web search, LSP diagnostics | Not built, not scheduled | No tool or mode exists for these | None. |
+| Plan mode, subagents, web search, LSP diagnostics | Not built, not scheduled | No tool or mode exists for these | None. |
 | Permission request over ACP | Contract limit | Tools run without a prompt (RX-ACP-001) | Not applicable. |
 | Cost in ACP usage reports | Rx | Lody cumulative usage includes known costs (RX-ACP-006). Standard context reports omit costs (RX-ACP-004). | `src/acp-session-usage.ts`, [Lody contract](docs/lody-acp.md#usage). |

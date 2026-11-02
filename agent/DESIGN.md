@@ -30,7 +30,7 @@ built yet.
 | `src/hooks.ts`, `src/hook-config.ts`, `src/hook-runner.ts` | User command checks, lifecycle, protocol, and process cleanup. |
 | `src/session-history.ts` | The current-session `recall_log` tool and rebuildable retrieval files. |
 | `src/context-source.ts`, `src/context-plan.ts`, `src/context-citations.ts`, `src/context-messages.ts` | Internal provenance, context planning, citation validation, and visible-message conversion. |
-| `src/tools.ts` | `read`, `write`, `edit`, and `bash`, all relative to the session working directory. |
+| `src/tools.ts`, `src/todo.ts`, `src/acp-elicitation.ts` | `read`, `write`, `edit`, `bash`, `todo`, and ACP `ask_user`, all relative to the session working directory. |
 | `src/mcp.ts` | User and ACP MCP configuration, connections, and tool adaptation. |
 | `src/session-log.ts`, `src/session-projection.ts` | Append-only JSONL session log, resume repair, and session listing. |
 | `src/models.ts` | Model and thinking-level resolution through pi-ai `Models`. |
@@ -68,6 +68,7 @@ built yet.
 | RX-ACP-005 | Advertise only implemented Lody extensions. [Contract](docs/lody-acp.md). Permissions remain under RX-ACP-001. |
 | RX-ACP-006 | Lody usage is scoped, cumulative per model, includes known costs, and excludes replay. [Contract](docs/lody-acp.md#usage). |
 | RX-ACP-007 | Fork preserves the source and copies a turn prefix. [Contract](docs/lody-acp.md). |
+| RX-ACP-008 | Todo snapshots emit and replay plans. Form clients enable cancellable `ask_user`. [Contract](docs/lody-acp.md). |
 | RX-CONTEXT-001 | Global instructions come from `$RX_HOME/AGENTS.md`. A missing session working directory has no project instructions or skills; global context still loads. New sessions require an existing working directory and fail before creating a log or lock otherwise. Project instructions follow from the project root through the session working directory. Each directory selects `AGENTS.md`, or `CLAUDE.md` when `AGENTS.md` is absent. Later instruction files take precedence on conflicts, as stated in the system prompt. Standalone local `@path` lines expand in place. Missing paths with a `./`, `../`, `~/`, or `/` prefix stop startup; unprefixed paths expand only when they resolve to regular files and otherwise stay literal. Permission errors still stop startup. Rx reads these files and never creates or changes them. |
 | RX-SKILL-001 | Skills follow the Agent Skills format. Project `.agents/skills` directories take precedence from the working directory toward the project root, followed by `~/.agents/skills`. The first skill with a given name wins. Within each search root, ordinary skills precede `.system` groups. Other hidden directories are excluded. Rx reports collisions with both paths on stderr, except when an ordinary skill overrides a `.system` skill. The prompt lists only the name, description, absolute `SKILL.md` path, and reading instructions. Rx excludes skills with `disable-model-invocation: true` from this catalog. |
 | RX-SKILL-002 | REPL and ACP `/name` skill commands. [Full contract](docs/instructions-and-skills.md). |

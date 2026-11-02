@@ -22,7 +22,7 @@ export const steerRequest = z.object({
   prompt: z.array(z.custom<acp.ContentBlock>()),
 });
 
-function object(value: unknown): Record<string, unknown> | undefined {
+export function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 

@@ -19,6 +19,8 @@ export function systemPrompt(cwd: string, now: Date = new Date()): { prompt: str
       "Use the tools to inspect files, change them, and run commands. Read a file before editing it.",
       "Keep changes focused on the request, verify them with the project's own checks, and report what you verified and what you did not.",
       "Tool calls run with the user's permissions. Do not run destructive commands unless the user asked for them.",
+      "Use todo to track multi-step work. Replace the complete list when work starts, finishes, or changes.",
+      "If ask_user is available, use it when you need a user decision instead of guessing. Otherwise, ask in your response.",
     ].join("\n"),
     [`Working directory: ${cwd}`, `Platform: ${process.platform}`, `Date: ${now.toISOString().slice(0, 10)}`].join("\n"),
   ];
