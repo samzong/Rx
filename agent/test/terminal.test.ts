@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-function terminal(t: TestContext, mode: "print" | "repl", behavior = "success") {
+function terminal(t: TestContext, mode: "print" | "repl", behavior = "success", commands: unknown[] = []) {
   const script = `
     import { runPrint, runRepl } from "./src/terminal.ts";
     import { registerContextControl } from "./src/context-control.ts";
@@ -55,7 +58,7 @@ function terminal(t: TestContext, mode: "print" | "repl", behavior = "success") 
     };
     registerContextControl(agent, control);
     if (${JSON.stringify(mode)} === "print") await runPrint(agent, "/compact");
-    else await runRepl(agent, "fixture");
+    else await runRepl(agent, "fixture", ${JSON.stringify(commands)}, process.cwd());
     process.stdout.write("RESULT " + JSON.stringify({prompts, calls, cleaned, idleWaits, listeners: listeners.size}) + "\\n");
   `;
   const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
@@ -125,6 +128,25 @@ test("REPL command arguments stay ordinary text", async (t) => {
   const result = await h.result();
   assert.deepEqual(result.prompts, ["/compact focus"]);
   assert.equal(result.calls, 0);
+});
+
+test("REPL expands skill commands and reports an unreadable skill without exiting", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "rx-repl-skill-"));
+  const filePath = join(dir, "SKILL.md");
+  writeFileSync(filePath, "---\nname: greet\ndescription: Greet\n---\n\nSay AHOY.\n");
+  const commands = [{ name: "greet", description: "Greet", filePath, baseDir: dir }, { name: "gone", description: "Gone", filePath: join(dir, "missing.md"), baseDir: dir }];
+  const h = terminal(t, "repl", "success", commands);
+  await h.question(1);
+  h.child.stdin.write("/greet matey\n");
+  await h.question(2);
+  h.child.stdin.write("/gone\n");
+  await h.question(3);
+  h.child.stdin.write("/other text\n");
+  await h.question(4);
+  h.child.stdin.write("/quit\n");
+  const result = await h.result();
+  assert.deepEqual(result.prompts, [`<skill name="greet" location="${filePath}">\nReferences are relative to ${dir}.\n\nSay AHOY.\n</skill>\n\nmatey`, "/other text"]);
+  assert.match(result.stderr, /error: ENOENT[^\n]*missing\.md/);
 });
 
 test("EOF aborts a running REPL summary and waits for cleanup", async (t) => {

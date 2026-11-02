@@ -1,9 +1,12 @@
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 import { stdin, stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { hookControl, isHookContext } from "./hooks.ts";
 import { formatModel } from "./models.ts";
 import { contextControl, type CompactionEvent } from "./context-control.ts";
+import { expandSkillCommand, type SkillCommand } from "./skills.ts";
 
 const dim = (value: string) => (stderr.isTTY ? `\x1b[2m${value}\x1b[22m` : value);
 
@@ -78,10 +81,77 @@ export async function runPrint(agent: Agent, prompt: string): Promise<number> {
   return hookControl(agent)?.rejected || stop === "error" || stop === "aborted" ? 1 : 0;
 }
 
-export async function runRepl(agent: Agent, banner: string, initialPrompt?: string): Promise<void> {
-  stderr.write(dim(`${banner}\nmodel ${formatModel(agent.state.model)} · thinking ${agent.state.thinkingLevel} · Ctrl-C aborts a turn, Ctrl-D exits\n`));
+const EXIT = { name: "exit", description: "Exit rx-agent" };
+const QUIT = { name: "quit", description: "Exit rx-agent" };
+const COMPACT = { name: "compact", description: "Compact the conversation context" };
+
+function findExecutable(names: string[]): string | null {
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    for (const name of names) {
+      const path = join(dir, name);
+      try {
+        accessSync(path, constants.X_OK);
+        return path;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+const accent = (value: string) => `\x1b[36m${value}\x1b[39m`;
+const faint = (value: string) => `\x1b[2m${value}\x1b[22m`;
+const editorTheme = {
+  borderColor: faint,
+  selectList: { selectedPrefix: accent, selectedText: accent, description: faint, scrollInfo: faint, noMatch: faint },
+};
+
+async function readEditor(commands: readonly SkillCommand[], history: readonly string[], cwd: string, fdPath: string | null): Promise<string | undefined> {
+  const { CombinedAutocompleteProvider, Editor, matchesKey, ProcessTerminal, TuiMainScreen } = await import("@earendil-works/pi-tui");
+  const terminal = new ProcessTerminal();
+  const tui = new TuiMainScreen(terminal);
+  const editor = new Editor(tui, editorTheme, { paddingX: 0 });
+  const items = [EXIT, QUIT, COMPACT, ...commands.map(({ name, description }) => ({ name, description }))];
+  editor.setAutocompleteProvider(new CombinedAutocompleteProvider(items, cwd, fdPath));
+  for (const entry of history) editor.addToHistory(entry);
+  tui.addChild(editor);
+  tui.setFocus(editor);
+  const input = await new Promise<string | undefined>((resolve) => {
+    editor.onSubmit = (text) => {
+      if (text.trim()) resolve(text);
+    };
+    tui.addInputListener((data) => {
+      if (matchesKey(data, "ctrl+c") && !editor.isShowingAutocomplete()) {
+        if (!editor.getText()) resolve(undefined);
+        else {
+          editor.setText("");
+          tui.requestRender();
+        }
+        return { consume: true };
+      }
+      if (matchesKey(data, "ctrl+d") && !editor.getText()) {
+        resolve(undefined);
+        return { consume: true };
+      }
+      return undefined;
+    });
+    tui.start();
+  });
+  tui.removeChild(editor);
+  tui.renderNow();
+  await terminal.drainInput();
+  tui.stop();
+  if (input !== undefined) stdout.write(`› ${input}\n`);
+  return input;
+}
+
+export async function runRepl(agent: Agent, banner: string, commands: readonly SkillCommand[], cwd: string, initialPrompt?: string): Promise<void> {
+  const interactive = Boolean(stdin.isTTY && stdout.isTTY);
+  const fdPath = interactive ? findExecutable(["fd", "fdfind"]) : null;
+  const hint = interactive ? ` · / commands and skills, @ files${fdPath ? "" : " (needs fd)"}` : "";
+  stderr.write(dim(`${banner}\nmodel ${formatModel(agent.state.model)} · thinking ${agent.state.thinkingLevel} · Ctrl-C aborts a turn, Ctrl-D exits${hint}\n`));
   const control = contextControl(agent);
-  const rl = createInterface({ input: stdin, output: stdout });
+  const rl = interactive ? undefined : createInterface({ input: stdin, output: stdout });
+  const history: string[] = [];
   let running = false;
   let closed = false;
   let manual = false;
@@ -89,11 +159,13 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
     agent.abort();
     control.abort();
   };
-  rl.on("SIGINT", () => {
+  const onSigint = () => {
     if (running) abort();
-    else rl.close();
-  });
-  rl.on("close", () => {
+    else rl?.close();
+  };
+  if (rl) rl.on("SIGINT", onSigint);
+  else process.on("SIGINT", onSigint);
+  rl?.on("close", () => {
     closed = true;
     if (running) abort();
   });
@@ -104,6 +176,38 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
   const unsubscribeCompaction = control.subscribe((event) => {
     if (!manual) renderCompaction(event);
   });
+  const read = async (): Promise<string | undefined> => {
+    if (!rl) return readEditor(commands, history, cwd, fdPath);
+    try {
+      const line = await rl.question("› ");
+      return closed ? undefined : line;
+    } catch {
+      return undefined;
+    }
+  };
+  const run = async (input: string) => {
+    if (input === "/compact") {
+      manual = true;
+      renderCompaction({ id: "manual", status: "in_progress" });
+      try {
+        await control.compact();
+        renderCompaction({ id: "manual", status: "completed" });
+      } catch (error) {
+        renderCompaction({ id: "manual", status: "failed", message: error instanceof Error ? error.message : String(error) });
+      } finally {
+        manual = false;
+      }
+      return;
+    }
+    let text: string;
+    try {
+      text = expandSkillCommand(input, commands);
+    } catch (error) {
+      stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+      return;
+    }
+    await agent.prompt(text);
+  };
   try {
     if (initialPrompt !== undefined) {
       running = true;
@@ -114,30 +218,15 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
       }
     }
     for (;;) {
-      let line: string;
-      try {
-        line = await rl.question("› ");
-      } catch {
-        break;
-      }
-      if (closed) break;
+      const line = await read();
+      if (line === undefined) break;
       const input = line.trim();
       if (!input) continue;
+      history.push(input);
       if (input === "/exit" || input === "/quit") break;
       running = true;
       try {
-        if (input === "/compact") {
-          manual = true;
-          renderCompaction({ id: "manual", status: "in_progress" });
-          try {
-            await control.compact();
-            renderCompaction({ id: "manual", status: "completed" });
-          } catch (error) {
-            renderCompaction({ id: "manual", status: "failed", message: error instanceof Error ? error.message : String(error) });
-          } finally {
-            manual = false;
-          }
-        } else await agent.prompt(input);
+        await run(input);
       } finally {
         running = false;
       }
@@ -145,9 +234,10 @@ export async function runRepl(agent: Agent, banner: string, initialPrompt?: stri
   } finally {
     abort();
     await Promise.all([agent.waitForIdle(), control.waitForIdle()]);
+    process.off("SIGINT", onSigint);
     unsubscribe();
     unsubscribeCompaction();
     unsubscribeHooks?.();
-    rl.close();
+    rl?.close();
   }
 }

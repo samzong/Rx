@@ -4,8 +4,8 @@ This document is part of the normative [rx-agent design contract](../DESIGN.md).
 
 RX-CLI-001: `rx-agent [options] [prompt...]` starts the existing REPL and sends the optional first prompt before it asks for another input.
 Positional arguments join with one space. A quoted argument keeps its internal whitespace and newlines.
-The initial prompt is ordinary model input, even when it is `/compact`, `/exit`, or `/quit`.
-Later REPL input keeps its existing command handling.
+The initial prompt is ordinary model input, even when it is `/compact`, `/exit`, `/quit`, or a skill command.
+Later REPL input handles those commands and expands skill commands under RX-SKILL-002.
 `-p <prompt>` still runs once and exits. A positional prompt cannot accompany `-p`.
 Resume and continue can receive the same optional first prompt.
 

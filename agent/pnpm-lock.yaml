@@ -185,6 +185,9 @@ importers:
       '@earendil-works/pi-mcp':
         specifier: 1.4.0
         version: 1.4.0
+      '@earendil-works/pi-tui':
+        specifier: 1.4.0
+        version: 1.4.0
       typebox:
         specifier: 1.4.3
         version: 1.4.3

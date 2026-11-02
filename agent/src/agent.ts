@@ -4,14 +4,14 @@ import { fastStreamOptions } from "./acp-fast.ts";
 import { installContextControl } from "./context.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
 import type { Origin, SessionLog } from "./session-log.ts";
-import { skillCatalog } from "./skills.ts";
+import { type SkillCommand, skillCatalog } from "./skills.ts";
 import { sessionHistoryTool } from "./session-history.ts";
 import { codingTools } from "./tools.ts";
 import { installHooks, isHookContext } from "./hooks.ts";
 import type { HookConfiguration } from "./hook-types.ts";
 import { transportDiagnostics } from "./transport-errors.ts";
 
-export function systemPrompt(cwd: string, now: Date = new Date()): string {
+export function systemPrompt(cwd: string, now: Date = new Date()): { prompt: string; commands: SkillCommand[] } {
   const sections = [
     [
       "You are Rx, a coding agent working directly in the user's local environment.",
@@ -30,7 +30,7 @@ export function systemPrompt(cwd: string, now: Date = new Date()): string {
   const skills = skillCatalog(directories);
   for (const diagnostic of skills.diagnostics) process.stderr.write(`rx-agent: skills: ${diagnostic}\n`);
   if (skills.prompt) sections.push(skills.prompt);
-  return sections.join("\n\n");
+  return { prompt: sections.join("\n\n"), commands: skills.commands };
 }
 
 export interface RxAgentOptions {

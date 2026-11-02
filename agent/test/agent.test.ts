@@ -22,7 +22,7 @@ test("the agent runs tools in its cwd and logs every message with its real origi
     fauxAssistantMessage("done"),
   ]);
   const log = SessionLog.create(home, cwd);
-  const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd), log, origin: "acp" });
+  const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log, origin: "acp" });
   await agent.prompt("change it");
   assert.equal(readFileSync(join(cwd, "note.txt"), "utf8"), "beta\n");
   const loaded = SessionLog.open(home, log.id);
@@ -41,9 +41,9 @@ test("a resumed agent continues from the logged history", async () => {
   const home = tempDir();
   faux.setResponses([fauxAssistantMessage("first"), (context) => fauxAssistantMessage(`saw ${context.messages.map((m) => m.role).join(",")}`)]);
   const log = SessionLog.create(home, cwd);
-  await createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd), log, origin: "cli" }).prompt("one");
+  await createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log, origin: "cli" }).prompt("one");
   const loaded = SessionLog.open(home, log.id);
-  const resumed = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd), log: loaded.log, origin: "cli", messages: loaded.messages });
+  const resumed = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log: loaded.log, origin: "cli", messages: loaded.messages });
   await resumed.prompt("two");
   const last = resumed.state.messages.at(-1)!;
   assert.ok(last.role === "assistant");
@@ -53,11 +53,11 @@ test("a resumed agent continues from the logged history", async () => {
 
 test("the system prompt includes AGENTS.md before CLAUDE.md", () => {
   const cwd = tempDir();
-  assert.doesNotMatch(systemPrompt(cwd), /Instructions from/);
+  assert.doesNotMatch(systemPrompt(cwd).prompt, /Instructions from/);
   writeFileSync(join(cwd, "CLAUDE.md"), "claude rules");
-  assert.match(systemPrompt(cwd), /claude rules/);
+  assert.match(systemPrompt(cwd).prompt, /claude rules/);
   writeFileSync(join(cwd, "AGENTS.md"), "agents rules");
-  const prompt = systemPrompt(cwd, new Date("2026-10-24T00:00:00Z"));
+  const prompt = systemPrompt(cwd, new Date("2026-10-24T00:00:00Z")).prompt;
   assert.match(prompt, /agents rules/);
   assert.doesNotMatch(prompt, /claude rules/);
   assert.match(prompt, /Date: 2026-10-24/);
@@ -106,7 +106,7 @@ test("the agent combines current instructions and skill metadata, then reads a s
     fauxAssistantMessage("read complete"),
   ]);
   const log = SessionLog.create(rxHome, cwd);
-  const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd), log, origin: "cli" });
+  const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log, origin: "cli" });
   const prompt = agent.state.systemPrompt;
   const markers = ["GLOBAL_POLICY", "IMPORTED_POLICY", "ROOT_POLICY", "PARENT_POLICY", "CWD_POLICY"];
   for (let i = 1; i < markers.length; i++) assert.ok(prompt.indexOf(markers[i - 1]!) < prompt.indexOf(markers[i]!));
@@ -124,7 +124,7 @@ test("the agent combines current instructions and skill metadata, then reads a s
   const logged = readFileSync(log.path, "utf8");
   assert.doesNotMatch(logged, /GLOBAL_POLICY|IMPORTED_POLICY|ROOT_POLICY|PARENT_POLICY|CWD_POLICY|available_skills/);
   writeFileSync(join(rxHome, "AGENTS.md"), "GLOBAL_UPDATED");
-  const resumed = createRxAgent({ models, model, thinking: "off", cwd: saved.log.cwd, systemPrompt: systemPrompt(saved.log.cwd), log: saved.log, origin: "cli", messages: saved.messages });
+  const resumed = createRxAgent({ models, model, thinking: "off", cwd: saved.log.cwd, systemPrompt: systemPrompt(saved.log.cwd).prompt, log: saved.log, origin: "cli", messages: saved.messages });
   assert.match(resumed.state.systemPrompt, /GLOBAL_UPDATED/);
   assert.doesNotMatch(resumed.state.systemPrompt, /GLOBAL_POLICY/);
 });
