@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Rx application icon">
+<rect width="1024" height="1024" rx="224" fill="#087a71"/>
+<g fill="#fff8ef" transform="translate(128 128) scale(48)">
+<path d="M2 2H9C12 2 14 4 14 7V9H11V7C11 5.7 10.3 5 9 5H2Z"/>
+<path d="M14 14H7C4 14 2 12 2 9V7H5V9C5 10.3 5.7 11 7 11H14Z"/>
+</g>
+</svg>
