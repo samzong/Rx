@@ -5,9 +5,22 @@ import type { AgentResult } from "./schema.ts";
 
 export const agents = ["rx-agent", "claude", "codex", "external"] as const;
 export type AgentName = typeof agents[number];
-export function credentials(agent: AgentName, source: NodeJS.ProcessEnv = process.env, externalNames: string[] = []): Record<string, string> {
+export interface CodexConfiguration { provider: "tokener"; model: string; effort: string }
+export const tokenerCodexDefaults: CodexConfiguration = { provider: "tokener", model: "gpt-6-sol", effort: "medium" };
+
+export function codexArgs(configuration?: CodexConfiguration): string[] {
+  const args = ["codex", "exec", "--json", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"];
+  if (configuration) args.push(
+    "-c", 'model_providers.tokener={name="Tokener",base_url="https://api.tokener.ai/v1",env_key="TOKENER_API_KEY",wire_api="responses",supports_websockets=false}',
+    "-c", 'model_provider="tokener"',
+    "-c", `model=${JSON.stringify(configuration.model)}`,
+    "-c", `model_reasoning_effort=${JSON.stringify(configuration.effort)}`,
+  );
+  return [...args, "-"];
+}
+export function credentials(agent: AgentName, source: NodeJS.ProcessEnv = process.env, externalNames: string[] = [], codex?: CodexConfiguration): Record<string, string> {
   if (externalNames.some((name) => !/^[A-Z][A-Z0-9_]*$/.test(name) || ["HOME", "PATH", "NODE_OPTIONS", "RX_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"].includes(name))) throw new Error("Use credential variable names without runtime overrides.");
-  const names = agent === "rx-agent" ? ["DEEPSEEK_API_KEY"] : agent === "claude" ? ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] : agent === "codex" ? ["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "OPENAI_API_KEY"] : externalNames;
+  const names = agent === "rx-agent" ? ["DEEPSEEK_API_KEY"] : agent === "claude" ? ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] : agent === "codex" ? codex ? ["TOKENER_API_KEY"] : ["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "OPENAI_API_KEY"] : externalNames;
   return Object.fromEntries(names.filter((name) => source[name]).map((name) => [name, source[name]!]));
 }
 
@@ -57,17 +70,35 @@ export function nativeResult(agent: AgentName, code: number | null, stdout: stri
   };
 }
 
-export async function runAgent(agent: AgentName, image: string, work: string, prompt: string, env: Record<string, string>, external?: string[]): Promise<AgentResult> {
+export async function runAgent(agent: AgentName, image: string, work: string, prompt: string, env: Record<string, string>, external?: string[], codex?: CodexConfiguration): Promise<AgentResult> {
   if (agent === "rx-agent") return runAcp(image, work, prompt, env);
   const argv = agent === "claude" ? ["claude", "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--dangerously-skip-permissions", "--setting-sources", "", "--strict-mcp-config", "--model", "claude-sonnet-5-5", "--effort", "medium"]
-    : agent === "codex" ? ["codex", "exec", "--json", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-"] : external;
+    : agent === "codex" ? codexArgs(codex) : external;
   if (!argv?.length) throw new Error("Provide an external agent command after --.");
   const result = await capture(dockerRun(image, work, argv, { env, network: true }), prompt);
   const parsed = nativeResult(agent, result.code, result.stdout);
   if (agent === "claude") parsed.thinking = "medium";
+  if (agent === "codex" && codex) {
+    parsed.configuration = codex;
+    if (parsed.model === "unknown") parsed.model = codex.model;
+    if (parsed.thinking === "unknown") parsed.thinking = codex.effort;
+  }
   parsed.events.push({ type: "process_stderr", text: result.stderr });
   if ([125, 126, 127].includes(result.code ?? -1)) throw Object.assign(new Error("The agent command could not start."), { partialResult: parsed });
-  if (parsed.infrastructureError) throw Object.assign(new Error(parsed.infrastructureError), { partialResult: parsed });
+  if (parsed.infrastructureError) {
+    const failure = parsed.events.findLast((event) => typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn.failed") as { error?: { message?: unknown } } | undefined;
+    const message = typeof failure?.error?.message === "string" ? failure.error.message : "";
+    const status = Number(/^unexpected status\s+(\d{3})\b/i.exec(message.trim())?.[1]);
+    let modelRejected = /\bmodel\s+[`"'][^`"']+[`"']\s+does not exist\b/i.test(message);
+    if (Number.isNaN(status)) {
+      try {
+        const body = JSON.parse(message) as { error?: { code?: unknown; message?: unknown } } | null;
+        modelRejected ||= body?.error?.code === "model_not_found" || (typeof body?.error?.message === "string" && /\bunsupported[ _-]+model\b/i.test(body.error.message));
+      } catch {}
+    }
+    const rejected = agent === "codex" && !!codex && ([401, 403].includes(status) || ((Number.isNaN(status) || [400, 404].includes(status)) && modelRejected));
+    throw Object.assign(new Error(rejected ? "Tokener rejected TOKENER_API_KEY or the configured model." : parsed.infrastructureError), { partialResult: parsed, abortRun: rejected });
+  }
   return parsed;
 }
 

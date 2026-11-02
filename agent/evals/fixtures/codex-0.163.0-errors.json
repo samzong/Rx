@@ -1,0 +1,194 @@
+{
+  "version": "codex-cli 0.163.0",
+  "projection": "Only error and turn.failed events. Loopback ports normalized to 12345.",
+  "cases": [
+    {
+      "id": "401",
+      "httpStatus": 401,
+      "abortRun": true,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "Reconnecting... 1/5 (unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 3/5 (unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 4/5 (unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 5/5 (unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/v1/responses"
+          }
+        }
+      ]
+    },
+    {
+      "id": "403",
+      "httpStatus": 403,
+      "abortRun": true,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "Reconnecting... 1/5 (unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 2/5 (unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 3/5 (unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 4/5 (unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 5/5 (unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "unexpected status 403 Forbidden: Access denied, url: http://127.0.0.1:12345/v1/responses"
+          }
+        }
+      ]
+    },
+    {
+      "id": "404-model",
+      "httpStatus": 404,
+      "abortRun": true,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "Reconnecting... 1/5 (unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 2/5 (unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 3/5 (unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 4/5 (unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 5/5 (unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "unexpected status 404 Not Found: The model `gpt-6-sol` does not exist or you do not have access to it., url: http://127.0.0.1:12345/v1/responses"
+          }
+        }
+      ]
+    },
+    {
+      "id": "400-unsupported",
+      "httpStatus": 400,
+      "abortRun": true,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "{\"error\":{\"message\":\"Unsupported model\",\"type\":\"invalid_request_error\",\"code\":null}}"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "{\"error\":{\"message\":\"Unsupported model\",\"type\":\"invalid_request_error\",\"code\":null}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "400-code",
+      "httpStatus": 400,
+      "abortRun": true,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "{\"error\":{\"message\":\"This model cannot serve this request.\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "{\"error\":{\"message\":\"This model cannot serve this request.\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "503-reconnecting",
+      "httpStatus": 503,
+      "abortRun": false,
+      "exitCode": 1,
+      "events": [
+        {
+          "type": "error",
+          "message": "Reconnecting... 1/5 (unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 2/5 (unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 3/5 (unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 4/5 (unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "Reconnecting... 5/5 (unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses)"
+        },
+        {
+          "type": "error",
+          "message": "unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses"
+        },
+        {
+          "type": "turn.failed",
+          "error": {
+            "message": "unexpected status 503 Service Unavailable: The model `gpt-6-sol` is not available because of capacity. Unsupported model route., url: http://127.0.0.1:12345/v1/responses"
+          }
+        }
+      ]
+    }
+  ]
+}
