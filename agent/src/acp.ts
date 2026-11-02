@@ -1,27 +1,29 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels, type AssistantMessage, type Models } from "@earendil-works/pi-ai";
 import { createRxAgent, systemPrompt } from "./agent.ts";
 import { formatModel, type ModelChoice } from "./models.ts";
-import { sessionConfigOptions, changeSessionConfig } from "./acp-config.ts";
+import { configurationSnapshot, changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import type { AcpSelection } from "./acp-state.ts";
 import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
 import { SESSION_USAGE_METHOD, SessionUsage } from "./acp-session-usage.ts";
-import { listSessions, readSessionHeader, SessionLog, type Origin } from "./session-log.ts";
+import { listSessions, readSessionHeader, SessionLog, unlockSession, type Origin } from "./session-log.ts";
 import { hasKnownModelCost } from "./rx-provider.ts";
 import { VERSION } from "./version.ts";
 import { connectMcp, type McpConnection } from "./mcp.ts";
 import { loadHooks } from "./hook-config.ts";
 import { hookControl } from "./hooks.ts";
-import { eventUpdates, historyUpdates, promptInput, toolInputUpdate } from "./acp-messages.ts";
+import { compactionUpdate, eventUpdates, historyUpdates, promptInput, retryUpdate, toolInputUpdate } from "./acp-messages.ts";
 export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
-import { contextControl, type CompactionEvent } from "./context-control.ts";
+import { contextControl } from "./context-control.ts";
 import { expandSkillCommand, type SkillCommand } from "./skills.ts";
-import { isProviderFailure, retryControl, type RetryEvent } from "./retry.ts";
-import { initialSessionConfig, LODY_CAPABILITIES, sessionSteering, steerRequest, worktreeProject } from "./acp-lody.ts";
+import { isProviderFailure, retryControl } from "./retry.ts";
+import { forkTurnId, initialSessionConfig, LODY_CAPABILITIES, lodyMeta, SESSION_CAPABILITIES, sessionSteering, steerRequest, turnUpdate, worktreeProject } from "./acp-lody.ts";
+import type { SessionTurn } from "./session-turns.ts";
 
 export interface AcpOptions {
   home: string;
@@ -71,84 +73,59 @@ function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReaso
   return "end_turn";
 }
 
-function compactionUpdate(event: CompactionEvent, supported: boolean, cancelled: boolean): Update {
-  if (supported) {
-    return {
-      sessionUpdate: "compaction_update",
-      compactionId: event.id,
-      status: event.status === "failed" && cancelled ? "cancelled" : event.status,
-      ...(event.status === "failed" && event.message ? { error: event.message } : {}),
-    };
-  }
-  return {
-    sessionUpdate: event.status === "in_progress" ? "tool_call" : "tool_call_update",
-    toolCallId: event.id,
-    title: event.status === "in_progress" ? "Compacting context" : event.status === "completed" ? "Context compacted" : "Context compaction failed",
-    kind: "other",
-    status: event.status,
-    ...(event.message ? { content: [{ type: "content", content: { type: "text", text: event.message } }] } : {}),
-    _meta: { lody: { activity: { version: 1, kind: "context_compaction" } } },
-  };
-}
-
-function retryUpdate(event: RetryEvent): Update {
-  return {
-    sessionUpdate: event.status === "in_progress" && event.attempt === 1 ? "tool_call" : "tool_call_update",
-    toolCallId: event.id,
-    title: `Retrying model request (${event.attempt}/${event.maxAttempts})`,
-    kind: "other",
-    status: event.status,
-    _meta: { lody: { activity: { version: 1, kind: "retry" } } },
-  };
-}
-
 export function createAcpApp(options: AcpOptions, sessions = new Map<string, LiveSession>()): acp.AgentApp {
   let booleanSupported = false;
   let compactionSupported = false;
   const opening = new Set<string>();
 
-  const snapshot = async (selection: AcpSelection) => {
-    const configOptions = await sessionConfigOptions(options.models, selection, supportsFast, booleanSupported);
-    const modelOption = configOptions.find((option) => option.category === "model");
-    const entries = modelOption?.type === "select" ? modelOption.options.flatMap((option) => "value" in option ? [option] : option.options) : [];
-    const models = Object.fromEntries(entries.flatMap(({ value }) => {
-      const slash = value.indexOf("/");
-      const model = value === formatModel(selection.model) ? selection.model : options.models.getModel(value.slice(0, slash), value.slice(slash + 1));
-      return model ? [[value, { effortValues: getSupportedThinkingLevels(model), fastMode: supportsFast(model) }]] : [];
-    }));
-    return { configOptions, _meta: { lody: { modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models } } } };
+  const snapshot = (selection: AcpSelection) => configurationSnapshot(options.models, selection, booleanSupported);
+
+  const forkError = (error: unknown, sessionId: string) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    const io = error as NodeJS.ErrnoException | null;
+    if (io?.code === "ENOENT" && io.path === join(options.home, "sessions", `${sessionId}.jsonl`)) return acp.RequestError.resourceNotFound(sessionId);
+    return io?.code ? acp.RequestError.internalError(undefined, detail) : acp.RequestError.invalidParams(undefined, detail);
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>> }, servers: acp.McpServer[], signal: AbortSignal, meta: unknown, requireCwd = false): Promise<{ live: LiveSession; history: AgentMessage[]; usageMessages: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; configuration: Awaited<ReturnType<typeof snapshot>> }> => {
-    const originProjectPath = worktreeProject(meta);
+  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; turns?: SessionTurn[] }, servers: acp.McpServer[], signal: AbortSignal, settings?: { requireCwd?: boolean; newLog?: boolean; selection?: AcpSelection; meta?: acp.NewSessionRequest["_meta"] }) => {
+    const originProjectPath = worktreeProject(settings?.meta);
     let choice: ModelChoice;
     let prompt: ReturnType<typeof systemPrompt>;
     try {
-      choice = await options.choose();
-      if (requireCwd) realpathSync(cwd);
+      choice = settings?.selection ?? await options.choose();
+      if (settings?.requireCwd) realpathSync(cwd);
       prompt = systemPrompt(cwd);
     } catch (error) {
       throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
     }
     const hooks = loadHooks(options.home);
-    let selection: AcpSelection = { ...choice, fast: false };
+    let selection: AcpSelection = settings?.selection ? { ...settings.selection } : { ...choice, fast: false };
     const supported = getSupportedThinkingLevels(selection.model);
     if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
     if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
-    selection = await initialSessionConfig(options.models, selection, meta, booleanSupported);
+    selection = await initialSessionConfig(options.models, selection, settings?.meta, booleanSupported);
     const configuration = await snapshot(selection);
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
+    let openedLog: SessionLog | undefined;
     try {
       signal.throwIfAborted();
-      const { log, messages, history = messages, usageMessages = messages, origins, inputs } = start();
+      const { log, messages, history = messages, usageMessages = messages, origins, inputs, turns } = start();
+      openedLog = log;
       log.recordOriginProject(originProjectPath);
       const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools: mcp.tools, hooks, onUsage: (message) => live.reportUsage?.(message) });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), usage: new SessionUsage(), running: false, manual: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
-      return { live, history, usageMessages, origins, inputs, configuration };
+      return { live, history, usageMessages, origins, inputs, turns, configuration };
     } catch (error) {
-      await mcp.close();
+      try {
+        if (settings?.newLog && openedLog) {
+          rmSync(openedLog.path, { force: true });
+          unlockSession(options.home, openedLog.id);
+        }
+      } catch {} finally {
+        await mcp.close();
+      }
       throw error;
     }
   };
@@ -182,15 +159,33 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
           loadSession: true,
           promptCapabilities: { image: available.some((model) => model.input.includes("image")), audio: false, embeddedContext: true },
           mcpCapabilities: { http: true, sse: false },
-          sessionCapabilities: { list: {} },
-          _meta: { lody: LODY_CAPABILITIES },
+          sessionCapabilities: SESSION_CAPABILITIES,
+          _meta: lodyMeta(LODY_CAPABILITIES),
         },
         authMethods: [],
         agentInfo: { name: "rx", title: "Rx", version: VERSION },
       };
     })
     .onRequest(acp.methods.agent.session.new, async ({ params, client, signal }) => {
-      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, params._meta, true);
+      const { live, configuration } = await open(params.cwd, () => ({ log: SessionLog.create(options.home, params.cwd), messages: [] }), params.mcpServers, signal, { requireCwd: true, newLog: true, meta: params._meta });
+      await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: availableCommands(live.commands) });
+      return { sessionId: live.log.id, ...configuration };
+    })
+    .onRequest(acp.methods.agent.session.fork, async ({ params, client, signal }) => {
+      const turnId = forkTurnId(params._meta);
+      try {
+        readSessionHeader(options.home, params.sessionId);
+      } catch (error) {
+        throw forkError(error, params.sessionId);
+      }
+      const { live, configuration } = await open(params.cwd, () => {
+        try {
+          const loaded = SessionLog.fork(options.home, params.sessionId, params.cwd, turnId);
+          return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
+        } catch (error) {
+          throw forkError(error, params.sessionId);
+        }
+      }, params.mcpServers ?? [], signal, { requireCwd: true, newLog: true, selection: sessions.get(params.sessionId)?.selection, meta: params._meta });
       await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: availableCommands(live.commands) });
       return { sessionId: live.log.id, ...configuration };
     })
@@ -202,14 +197,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       opening.add(params.sessionId);
       if (previous) previous.configuring = true;
       try {
-        const { live, history, usageMessages, origins, inputs, configuration } = await open(cwd, () => {
+        const { live, history, usageMessages, origins, inputs, turns, configuration } = await open(cwd, () => {
           const loaded = SessionLog.open(options.home, params.sessionId);
           return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
-        }, params.mcpServers, signal, params._meta);
+        }, params.mcpServers, signal, { meta: params._meta });
         live.configuring = true;
         try {
           await previous?.mcp.close();
-          for (const update of historyUpdates(cwd, history, origins, inputs)) {
+          for (const update of historyUpdates(cwd, history, origins, inputs, turns)) {
             await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update });
           }
           const usage = latestUsageUpdate(usageMessages, live.selection.model);
@@ -247,7 +242,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         cwd: s.cwd,
         title: s.title,
         updatedAt: s.updatedAt,
-        ...(s.originProjectPath ? { _meta: { lody: { worktreeProject: { version: 1, originProjectPath: s.originProjectPath } } } } : {}),
+        ...(s.originProjectPath ? { _meta: lodyMeta({ worktreeProject: { version: 1, originProjectPath: s.originProjectPath } }) } : {}),
       })),
     }))
     .onRequest("_lody/session/steer", steerRequest, ({ params, client }) => {
@@ -302,6 +297,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       if (signal.aborted) onClose();
       try {
         if (!live.cancelled) {
+          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: turnUpdate(live.log.beginTurn()) });
           if (live.mcp.warnings.length) {
             await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${live.mcp.warnings.join("\n")}\n` } } });
             live.mcp.warnings.length = 0;

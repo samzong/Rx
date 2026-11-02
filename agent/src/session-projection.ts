@@ -3,6 +3,7 @@ import type { CompactionCheckpoint } from "./context-control.ts";
 import { clearedMessage, rawMessageSeq, setMessageSources, type SourceRange } from "./context-source.ts";
 import { validateSummarySources } from "./context-citations.ts";
 import type { Origin } from "./session-log.ts";
+import { sessionTurns, type LocatedTurn } from "./session-turns.ts";
 
 export interface MessageEntry {
   type: "message";
@@ -122,7 +123,9 @@ export function sessionRecords(values: unknown[], path: string): {
   usageThrough: number;
   cleared: Set<number>;
   inputs: Map<string, Record<string, unknown>>;
+  turns: LocatedTurn[];
 } {
+  const turns = sessionTurns(values, path);
   const entries: MessageEntry[] = [];
   const inputs = new Map<string, Record<string, unknown>>();
   const cleared = new Set<number>();
@@ -182,7 +185,7 @@ export function sessionRecords(values: unknown[], path: string): {
       }
     }
   }
-  return { entries, messages, usageThrough, cleared, inputs };
+  return { entries, messages, usageThrough, cleared, inputs, turns };
 }
 
 export function danglingToolCalls(messages: AgentMessage[]): { id: string; name: string }[] {

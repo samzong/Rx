@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFil
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxThinking, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAcpApp, historyUpdates, promptInput, type AcpOptions } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
@@ -34,7 +34,7 @@ test("initialize advertises load, list, and prompt capabilities", async () => {
   const result = await run((ctx) => ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION }));
   assert.equal(result.agentCapabilities?.loadSession, true);
   assert.deepEqual(result.agentCapabilities?.promptCapabilities, { image: true, audio: false, embeddedContext: true });
-  assert.deepEqual(result.agentCapabilities?.sessionCapabilities, { list: {} });
+  assert.deepEqual(result.agentCapabilities?.sessionCapabilities, { list: {}, fork: {} });
   assert.equal(result.agentInfo?.name, "rx");
 });
 
@@ -65,9 +65,9 @@ test("a prompt streams thought, text, and tool updates, then replays them on loa
   await client.connectWith(app, (ctx) => ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
   assert.deepEqual(
     replayed.map((u) => u.sessionUpdate),
-    ["user_message_chunk", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "agent_message_chunk", "available_commands_update"],
+    ["user_message_chunk", "agent_message_chunk", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "agent_message_chunk", "available_commands_update"],
   );
-  const call = replayed[3]!;
+  const call = replayed[4]!;
   assert.ok(call.sessionUpdate === "tool_call");
   assert.equal(call.kind, "read");
   assert.equal(call.title, "read: a.txt");

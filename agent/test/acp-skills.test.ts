@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { fauxModels, tempDir } from "./helpers.ts";

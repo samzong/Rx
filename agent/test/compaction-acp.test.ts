@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { registerContextControl, type CompactionEvent, type ContextControl } from "../src/context-control.ts";
@@ -128,9 +128,13 @@ for (const capability of [undefined, null, {}]) {
       assert.equal(response.stopReason, "end_turn");
       assert.equal(fixture.calls, 1);
       assert.equal(h.faux.state.callCount, 0);
-      assert.deepEqual(readFileSync(live.log.path), before);
+      const added = readFileSync(live.log.path).subarray(before.length).toString().trim().split("\n").map((line) => JSON.parse(line));
+      assert.equal(added.length, 1);
+      assert.equal(added[0].type, "turn");
       assert.equal(fixture.listenerCount(), 0);
-      const events = h.updates.filter((update) => update.sessionUpdate !== "available_commands_update");
+      const events = h.updates.filter((update) => update.sessionUpdate !== "available_commands_update" && update.sessionUpdate !== "agent_message_chunk");
+      const marker = h.updates.find((update) => update.sessionUpdate === "agent_message_chunk");
+      assert.equal((marker?._meta?.lody as { turnId?: string })?.turnId, added[0].id);
       if (capability != null) {
         assert.deepEqual(events, [
           { sessionUpdate: "compaction_update", compactionId: "compact-1", status: "in_progress" },

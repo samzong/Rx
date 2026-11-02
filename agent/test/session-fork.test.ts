@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import { appendFileSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { SessionLog } from "../src/session-log.ts";
+import { foreignSession, tempDir } from "./helpers.ts";
+
+const user = (content: string) => ({ role: "user" as const, content, timestamp: Date.now() });
+
+test("fork copies a complete turn prefix, all records by default, and never repairs the source", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const source = SessionLog.create(home, cwd);
+  const first = source.beginTurn();
+  source.append("acp", user("secret A"));
+  source.append("model", fauxAssistantMessage("answer A"));
+  const second = source.beginTurn();
+  source.append("acp", user("secret B"));
+  source.append("model", fauxAssistantMessage("answer B"));
+  appendFileSync(source.path, '{"partial":');
+  const original = readFileSync(source.path);
+  const fork = SessionLog.fork(home, source.id, cwd, first);
+  const lines = original.subarray(0, original.lastIndexOf(0x0a) + 1).toString("utf8").split("\n");
+  const boundary = lines.findIndex((line) => line && JSON.parse(line).id === second);
+  const copied = readFileSync(fork.log.path);
+  assert.deepEqual(copied.subarray(copied.indexOf(0x0a) + 1), Buffer.from(`${lines.slice(1, boundary).join("\n")}\n`));
+  assert.deepEqual(fork.history.map((message) => "content" in message ? message.content : undefined), ["secret A", [{ type: "text", text: "answer A" }]]);
+  assert.equal(fork.turns[0]?.id, first);
+  assert.notEqual(fork.log.id, source.id);
+  assert.equal(readFileSync(join(home, "sessions", `${fork.log.id}.lock`), "utf8"), String(process.pid));
+  const complete = SessionLog.fork(home, source.id, tempDir());
+  assert.equal(complete.history.length, 4);
+  const whole = readFileSync(complete.log.path);
+  assert.deepEqual(whole.subarray(whole.indexOf(0x0a) + 1), original.subarray(original.indexOf(0x0a) + 1, original.lastIndexOf(0x0a) + 1));
+  assert.ok(!readFileSync(complete.log.path, "utf8").includes("partial"));
+  assert.deepEqual(readFileSync(source.path), original);
+  assert.equal(statSync(fork.log.path).mode & 0o777, 0o600);
+});
+
+test("fork retains only checkpoints and clearing selections before the next turn", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const source = SessionLog.create(home, cwd);
+  const first = source.beginTurn();
+  source.append("acp", user("A"));
+  source.append("model", fauxAssistantMessage("answer A"));
+  const second = source.beginTurn();
+  source.append("acp", user("B"));
+  source.appendCheckpoint("A and B summary", []);
+  source.append("model", fauxAssistantMessage("answer B"));
+  source.beginTurn();
+  source.append("acp", user("C"));
+  source.append("model", fauxAssistantMessage([fauxToolCall("read", { path: "x" }, { id: "read-1" })], { stopReason: "toolUse" }));
+  source.appendToolInput("read-1", { path: "executed-x" });
+  source.append("tool", { role: "toolResult", toolCallId: "read-1", toolName: "read", content: [{ type: "text", text: "large content" }], isError: false, timestamp: Date.now() });
+  source.appendPrune([7]);
+  source.append("model", fauxAssistantMessage("answer C"));
+  const earlier = SessionLog.fork(home, source.id, cwd, first);
+  assert.equal(earlier.messages.length, 2);
+  assert.doesNotMatch(JSON.stringify(earlier.messages), /summary|B|C/);
+  const later = SessionLog.fork(home, source.id, cwd, second);
+  assert.equal(later.messages.length, 2);
+  assert.match(JSON.stringify(later.messages[0]), /A and B summary/);
+  assert.doesNotMatch(JSON.stringify(later.messages), /answer C|large content/);
+  const all = SessionLog.fork(home, source.id, cwd);
+  assert.match(JSON.stringify(all.messages), /cleared, log seq 7/);
+  assert.deepEqual(all.inputs.get("read-1"), { path: "executed-x" });
+});
+
+test("old logs get stable ordinal boundaries and missing sources or turns cannot create forks", () => {
+  const cwd = tempDir();
+  const source = foreignSession(cwd, [["acp", user("old A")], ["model", fauxAssistantMessage("answer A")], ["acp", user("old B")], ["model", fauxAssistantMessage("answer B")]]);
+  const original = readFileSync(source.path);
+  const fork = SessionLog.fork(source.home, source.id, cwd, "message-1");
+  assert.equal(fork.history.length, 2);
+  assert.equal(fork.turns[0]?.id, "message-1");
+  assert.throws(() => SessionLog.fork(source.home, source.id, cwd, "missing"));
+  assert.throws(() => SessionLog.fork(source.home, "../missing", cwd));
+  assert.throws(() => SessionLog.fork(source.home, "00000000-0000-0000-0000-000000000000", cwd));
+  assert.deepEqual(readFileSync(source.path), original);
+});
+
+test("a running snapshot repairs only the fork and never repeats an unfinished tool", () => {
+  const home = tempDir();
+  const cwd = tempDir();
+  const source = SessionLog.create(home, cwd);
+  const turnId = source.beginTurn();
+  source.append("acp", user("run a tool"));
+  source.append("model", fauxAssistantMessage([fauxToolCall("bash", { command: "touch result" }, { id: "pending-1" })], { stopReason: "toolUse" }));
+  const before = readFileSync(source.path);
+  const fork = SessionLog.fork(home, source.id, cwd, turnId);
+  assert.equal(fork.repaired, 1);
+  assert.equal(SessionLog.fork(home, source.id, cwd).repaired, 1);
+  const repair = fork.history.at(-1);
+  assert.ok(repair?.role === "toolResult" && repair.isError && repair.toolCallId === "pending-1");
+  assert.match(JSON.stringify(repair.content), /side effects are unknown/);
+  assert.equal(SessionLog.open(home, fork.log.id).repaired, 0);
+  assert.deepEqual(readFileSync(source.path), before);
+  source.append("tool", { role: "toolResult", toolCallId: "pending-1", toolName: "bash", content: [{ type: "text", text: "finished later" }], isError: false, timestamp: Date.now() });
+  assert.doesNotMatch(readFileSync(fork.log.path, "utf8"), /finished later/);
+});

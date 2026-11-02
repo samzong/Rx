@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { lodyMeta } from "./acp-lody.ts";
 
 export const SESSION_USAGE_METHOD = "_lody/session/usage_update";
 
@@ -17,7 +18,7 @@ export interface SessionUsageUpdate {
   usage: ModelUsage;
   modelUsage: Record<string, ModelUsage>;
   delta: { usage: ModelUsage; modelUsage: Record<string, ModelUsage> };
-  _meta: { lody: { usageScopeId: string } };
+  _meta: ReturnType<typeof lodyMeta<{ usageScopeId: string }>>;
 }
 
 const counters = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "reasoningOutputTokens"] as const;
@@ -59,7 +60,7 @@ export class SessionUsage {
     return structuredClone({
       sessionId, usage, modelUsage: Object.fromEntries(this.totals),
       delta: { usage: delta, modelUsage: { [model]: delta } },
-      _meta: { lody: { usageScopeId: this.scopeId } },
+      _meta: lodyMeta({ usageScopeId: this.scopeId }),
     });
   }
 }

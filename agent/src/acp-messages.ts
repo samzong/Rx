@@ -1,10 +1,16 @@
 import { isAbsolute, resolve } from "node:path";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { isHookContext } from "./hooks.ts";
 import type { Origin } from "./session-log.ts";
 import { skillInvocationText } from "./skills.ts";
+import { rawMessageSeq } from "./context-source.ts";
+import type { SessionTurn } from "./session-turns.ts";
+import { lodyMeta, turnUpdate } from "./acp-lody.ts";
+
+import type { CompactionEvent } from "./context-control.ts";
+import type { RetryEvent } from "./retry.ts";
 
 type Update = acp.SessionUpdate;
 
@@ -52,9 +58,16 @@ function toolCallEnd(id: string, isError: boolean, content: unknown): Update {
   return { sessionUpdate: "tool_call_update", toolCallId: id, status: isError ? "failed" : "completed", content: resultContent(content) };
 }
 
-export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: Origin[], inputs?: ReadonlyMap<string, Record<string, unknown>>): Update[] {
+export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: Origin[], inputs?: ReadonlyMap<string, Record<string, unknown>>, turns: readonly SessionTurn[] = []): Update[] {
   const updates: Update[] = [];
+  let turnIndex = 0;
   for (const [index, message] of messages.entries()) {
+    const due: SessionTurn[] = [];
+    const seq = rawMessageSeq(message);
+    while (seq !== undefined && turnIndex < turns.length && turns[turnIndex]!.through < seq) due.push(turns[turnIndex++]!);
+    const userTurn = message.role === "user" && origins?.[index] !== "rx";
+    const current = userTurn ? due.pop() : undefined;
+    for (const turn of due) updates.push(turnUpdate(turn.id));
     if (message.role === "user") {
       const blocks = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
       for (const block of blocks) {
@@ -63,6 +76,7 @@ export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: 
           content: block.type === "text" ? { type: "text", text: skillInvocationText(block.text) } : { type: "image", data: block.data, mimeType: block.mimeType },
         });
       }
+      if (current) updates.push(turnUpdate(current.id));
     } else if (message.role === "assistant") {
       for (const block of message.content) {
         if (block.type === "text" && block.text) updates.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: block.text } });
@@ -78,6 +92,7 @@ export function historyUpdates(cwd: string, messages: AgentMessage[], origins?: 
       updates.push(toolCallEnd(message.toolCallId, message.isError, message.content));
     }
   }
+  for (const turn of turns.slice(turnIndex)) updates.push(turnUpdate(turn.id));
   return updates;
 }
 
@@ -117,4 +132,35 @@ export function promptInput(blocks: acp.ContentBlock[]): { text: string; images:
     } else throw acp.RequestError.invalidParams(undefined, `unsupported prompt content: ${block.type}`);
   }
   return { text: parts.join("\n\n"), images };
+}
+
+export function compactionUpdate(event: CompactionEvent, supported: boolean, cancelled: boolean): Update {
+  if (supported) {
+    return {
+      sessionUpdate: "compaction_update",
+      compactionId: event.id,
+      status: event.status === "failed" && cancelled ? "cancelled" : event.status,
+      ...(event.status === "failed" && event.message ? { error: event.message } : {}),
+    };
+  }
+  return {
+    sessionUpdate: event.status === "in_progress" ? "tool_call" : "tool_call_update",
+    toolCallId: event.id,
+    title: event.status === "in_progress" ? "Compacting context" : event.status === "completed" ? "Context compacted" : "Context compaction failed",
+    kind: "other",
+    status: event.status,
+    ...(event.message ? { content: [{ type: "content", content: { type: "text", text: event.message } }] } : {}),
+    _meta: lodyMeta({ activity: { version: 1, kind: "context_compaction" } }),
+  };
+}
+
+export function retryUpdate(event: RetryEvent): Update {
+  return {
+    sessionUpdate: event.status === "in_progress" && event.attempt === 1 ? "tool_call" : "tool_call_update",
+    toolCallId: event.id,
+    title: `Retrying model request (${event.attempt}/${event.maxAttempts})`,
+    kind: "other",
+    status: event.status,
+    _meta: lodyMeta({ activity: { version: 1, kind: "retry" } }),
+  };
 }

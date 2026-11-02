@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { assertProcessExited, foreignSession, fauxModels, mcpPid, tempDir } from "./helpers.ts";
@@ -11,6 +11,24 @@ process.env.HOME = tempDir();
 process.env.RX_HOME = tempDir();
 const fixture = new URL("./fixtures/mcp-server.ts", import.meta.url).pathname;
 const server = (name: string): acp.McpServer => ({ name, command: process.execPath, args: [fixture], env: [] });
+
+test("ACP fork uses requested MCP servers and can prompt before load", async () => {
+  const { faux, models, model } = fauxModels();
+  const cwd = tempDir();
+  const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model, thinking: "off" }) });
+  const updates: acp.SessionNotification[] = [];
+  const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params); });
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("mcp__forked__echo", { value: "FORK_MCP_OK" }, { id: "fork-call" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage("fork done"),
+  ]);
+  await client.connectWith(app, async (ctx) => {
+    const source = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
+    const fork = await ctx.request(acp.methods.agent.session.fork, { sessionId: source.sessionId, cwd, mcpServers: [server("forked")] });
+    await ctx.request(acp.methods.agent.session.prompt, { sessionId: fork.sessionId, prompt: [{ type: "text", text: "use MCP" }] });
+    assert.ok(updates.some(({ sessionId, update }) => sessionId === fork.sessionId && update.sessionUpdate === "tool_call_update" && update.status === "completed" && JSON.stringify(update.content).includes("FORK_MCP_OK")));
+  });
+});
 
 test("ACP load closes replaced MCP children and connection end closes current children", { timeout: 15_000 }, async (t) => {
   const { models, model } = fauxModels();

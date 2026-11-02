@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Models } from "@earendil-works/pi-ai";
 import { z } from "zod";
@@ -13,6 +13,7 @@ export const LODY_CAPABILITIES = {
   steering: { version: 1, transport: "request", upstreamTurn: "same", configPolicy: "active" },
   worktreeProject: { version: 1 },
   usage: { version: 1 },
+  forkAtTurn: { version: 1 },
 };
 
 export const steerRequest = z.object({
@@ -91,4 +92,26 @@ export function sessionSteering(agent: Agent) {
       pending.clear();
     },
   };
+}
+
+export const SESSION_CAPABILITIES = { list: {}, fork: {} };
+
+export function lodyMeta<T extends Record<string, unknown>>(value: T) {
+  return { lody: value };
+}
+
+const forkSchema = z.object({ version: z.literal(1), turnId: z.string().min(1).optional() });
+
+export function forkTurnId(meta: unknown): string | undefined {
+  const lody = object(meta)?.lody;
+  if (lody !== undefined && !object(lody)) throw acp.RequestError.invalidParams(undefined, "lody metadata requires an object");
+  const value = object(lody)?.forkAtTurn;
+  if (value === undefined) return undefined;
+  const parsed = forkSchema.safeParse(value);
+  if (!parsed.success) throw acp.RequestError.invalidParams(undefined, "forkAtTurn requires version 1 and an optional turnId");
+  return parsed.data.turnId;
+}
+
+export function turnUpdate(turnId: string): acp.SessionUpdate {
+  return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "" }, _meta: lodyMeta({ turnId }) };
 }

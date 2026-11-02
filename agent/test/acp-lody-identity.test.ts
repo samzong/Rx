@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { sessionSteering } from "../src/acp-lody.ts";

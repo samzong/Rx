@@ -30,10 +30,28 @@ After a failed compaction, an older ACP load can display summary usage as workin
 Successful checkpoints exclude earlier measurements under the existing load rules.
 This downgrade limitation does not change how the new reader loads old logs.
 
-Rx does not create forks, branches, child sessions, or subagents through CLI or ACP.
-Its headers therefore have no parent or fork field.
+ACP can fork a session. Fork creates a new header and copies a prefix of the source records without changing the source.
+Headers have no parent field. CLI branches and subagents remain unsupported.
 Recall does not need a stored system prompt for its current history and usage reader.
 A reproducible prompt snapshot would be a separate product contract.
+
+## Fork boundaries
+
+Before each ACP or CLI prompt, Rx appends `{type: "turn", version: 1, id, through}`.
+`id` is a UUID. `through` counts the preceding complete message records, including summary accounting.
+Turn records do not consume message ordinals. Invalid versions, duplicate identities, or mismatched counts fail before repair.
+Inserted steering messages remain within the current prompt boundary. Blocked prompts and manual `/compact` commands get distinct boundaries.
+For older logs, each non-Rx user message before the first explicit turn gets the stable identity `message-N`.
+N is that message's original ordinal. Existing complete records remain unchanged.
+
+Fork includes the selected turn and stops before the next turn record or older implicit boundary.
+It copies all intervening records, including checkpoints, accounting, executed tool inputs, and clearing selections.
+The prefix keeps its original message positions, so projection needs no checkpoint rewriting.
+Without a turn identity, fork copies all complete records. Unknown identities fail without creating a target log.
+A torn final fragment stays in the source and is excluded from the copy.
+Fork takes only the new session's writer lock. An active source can keep appending after the snapshot.
+Only the copy receives interrupted-tool repairs. These repairs never authorize or repeat a tool operation.
+See [Lody ACP](lody-acp.md) for selection inheritance and replay metadata.
 
 ## Original message ordinals and retrieval
 

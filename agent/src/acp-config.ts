@@ -2,6 +2,20 @@ import * as acp from "@agentclientprotocol/sdk";
 import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
 import type { AcpSelection, SupportsFast } from "./acp-state.ts";
 import { formatModel, resolveModel } from "./models.ts";
+import { supportsFast } from "./acp-fast.ts";
+import { lodyMeta } from "./acp-lody.ts";
+
+export async function configurationSnapshot(models: Models, selection: AcpSelection, booleanSupported: boolean) {
+  const configOptions = await sessionConfigOptions(models, selection, supportsFast, booleanSupported);
+  const modelOption = configOptions.find((option) => option.category === "model");
+  const entries = modelOption?.type === "select" ? modelOption.options.flatMap((option) => "value" in option ? [option] : option.options) : [];
+  const capabilities = Object.fromEntries(entries.flatMap(({ value }) => {
+    const slash = value.indexOf("/");
+    const model = value === formatModel(selection.model) ? selection.model : models.getModel(value.slice(0, slash), value.slice(slash + 1));
+    return model ? [[value, { effortValues: getSupportedThinkingLevels(model), fastMode: supportsFast(model) }]] : [];
+  }));
+  return { configOptions, _meta: lodyMeta({ modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models: capabilities } }) };
+}
 
 export async function sessionConfigOptions(
   models: Models,
