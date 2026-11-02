@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setImmediate } from "node:timers/promises";
 import { readFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -15,12 +16,25 @@ const RAW_AUTHORIZATION = "Bearer fake-authorization-secret";
 const RAW_MESSAGE = "raw transport failure secret";
 
 function fakeCredential(t: TestContext): void {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const previousKey = process.env[API_KEY_ENV];
   process.env[API_KEY_ENV] = API_KEY;
   t.after(() => {
     if (previousKey === undefined) delete process.env[API_KEY_ENV];
     else process.env[API_KEY_ENV] = previousKey;
   });
+}
+
+async function finish(t: TestContext, operation: Promise<void>) {
+  let settled = false;
+  const pending = operation.finally(() => { settled = true; });
+  const deadline = Date.now() + 5000;
+  while (!settled && Date.now() < deadline) {
+    await setImmediate();
+    t.mock.timers.tick(16000);
+  }
+  assert.ok(settled, "The request did not settle");
+  await pending;
 }
 
 function agentFixture() {
@@ -74,9 +88,9 @@ test("transport errors keep safe diagnostics in agent state and session log with
   });
   const { agent, log } = agentFixture();
 
-  await agent.prompt("first request");
-  assert.equal(calls, 1);
-  const firstFailure = assistantMessages(agent.state.messages).at(-1)!;
+  await finish(t, agent.prompt("first request"));
+  assert.equal(calls, 2);
+  const firstFailure = assistantMessages(agent.state.messages).at(-2)!;
   assert.equal(firstFailure.stopReason, "error");
   assert.ok(firstFailure.role === "assistant");
   for (const value of ["ECONNREFUSED", "connect", "-61"]) assert.ok(firstFailure.errorMessage?.includes(value));
@@ -95,8 +109,6 @@ test("transport errors keep safe diagnostics in agent state and session log with
     assert.equal(firstLogText.includes(value), false);
   }
 
-  await agent.prompt("second request");
-  assert.equal(calls, 2);
   const secondFailure = assistantMessages(agent.state.messages).at(-1)!;
   assert.equal(secondFailure.stopReason, "error");
   assert.ok(secondFailure.role === "assistant");
@@ -104,7 +116,7 @@ test("transport errors keep safe diagnostics in agent state and session log with
     assert.equal((secondFailure.errorMessage ?? "").includes(value), false);
   }
 
-  await agent.prompt("third request");
+  await finish(t, agent.prompt("second request"));
   assert.equal(calls, 3);
   const recovered = assistantMessages(agent.state.messages).at(-1)!;
   assert.equal(recovered.stopReason, "stop");
@@ -141,7 +153,7 @@ for (const [code, syscall] of [["ENOTFOUND", "getaddrinfo"], ["ERR_TLS_CERT_ALTN
     const cause = Object.assign(new Error(RAW_URL), { code, syscall });
     t.mock.method(globalThis, "fetch", async () => { throw new TypeError(RAW_AUTHORIZATION, { cause }); });
     const { agent, log } = agentFixture();
-    await agent.prompt("diagnose connection");
+    await finish(t, agent.prompt("diagnose connection"));
     const message = assistantMessages(agent.state.messages).at(-1)!;
     assert.equal(message.stopReason, "error");
     assert.ok(message.role === "assistant" && message.errorMessage?.includes(code!) && message.errorMessage.includes(syscall!));
@@ -158,7 +170,7 @@ test("unknown fields and cyclic aggregate causes cannot expose credentials or ha
   cause.errors = [cause, Object.assign(new Error(RAW_MESSAGE), { code: "EAI_AGAIN" })];
   t.mock.method(globalThis, "fetch", async () => { throw new TypeError(RAW_MESSAGE, { cause }); });
   const { agent, log } = agentFixture();
-  await agent.prompt("diagnose private failure");
+  await finish(t, agent.prompt("diagnose private failure"));
   const message = assistantMessages(agent.state.messages).at(-1)!;
   assert.ok(message.role === "assistant" && message.errorMessage?.includes("EAI_AGAIN"));
   const saved = readFileSync(log.path, "utf8");
@@ -175,15 +187,15 @@ test("one agent keeps its fetch reference and reads the current global fetch for
     return stream(model, context, options);
   });
   t.mock.method(globalThis, "fetch", async () => { throw Object.assign(new Error(RAW_MESSAGE), { code: "ConnectionRefused", errno: 0 }); });
-  await agent.prompt("first request");
+  await finish(t, agent.prompt("first request"));
   const failure = assistantMessages(agent.state.messages).at(-1)!;
   assert.ok(failure.role === "assistant" && failure.errorMessage?.includes("ConnectionRefused"));
   t.mock.method(globalThis, "fetch", async () => responsesOk());
-  await agent.prompt("second request");
+  await finish(t, agent.prompt("second request"));
   assert.equal(assistantMessages(agent.state.messages).at(-1)!.stopReason, "stop");
-  assert.equal(references.length, 2);
+  assert.equal(references.length, 5);
   assert.equal(typeof references[0], "function");
-  assert.equal(references[0], references[1]);
+  assert.ok(references.every((reference) => reference === references[0]));
   assert.ok(failure.role === "assistant" && !failure.errorMessage?.includes("errno="));
 });
 
@@ -198,7 +210,7 @@ test("an SDK timeout keeps the pi-ai timeout message in state and the session lo
       signal?.addEventListener("abort", () => reject(new DOMException("private abort details", "AbortError")), { once: true });
     });
   });
-  await agent.prompt("time out this request");
+  await finish(t, agent.prompt("time out this request"));
   const message = assistantMessages(agent.state.messages).at(-1)!;
   assert.ok(message.role === "assistant");
   assert.equal(message.stopReason, "error");
@@ -215,16 +227,19 @@ test("concurrent agents keep transport failures in their own sessions", async (t
   const pending: ((reason: unknown) => void)[] = [];
   let bothStarted!: () => void;
   const started = new Promise<void>((resolve) => { bothStarted = resolve; });
-  t.mock.method(globalThis, "fetch", () => new Promise<Response>((_resolve, reject) => {
-    pending.push(reject);
-    if (pending.length === 2) bothStarted();
-  }));
+  t.mock.method(globalThis, "fetch", (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if (pending.length >= 2) return Promise.reject(Object.assign(new Error(RAW_MESSAGE), { code: String(init?.body).includes("first session") ? "ECONNREFUSED" : "ENOTFOUND" }));
+    return new Promise<Response>((_resolve, reject) => {
+      pending.push(reject);
+      if (pending.length === 2) bothStarted();
+    });
+  });
   const firstTurn = first.agent.prompt("first session");
   const secondTurn = second.agent.prompt("second session");
   await started;
   pending[0]!(Object.assign(new Error(RAW_MESSAGE), { code: "ECONNREFUSED" }));
   pending[1]!(Object.assign(new Error(RAW_MESSAGE), { code: "ENOTFOUND" }));
-  await Promise.all([firstTurn, secondTurn]);
+  await finish(t, Promise.all([firstTurn, secondTurn]).then(() => {}));
   for (const [fixture, ownCode, otherCode] of [[first, "ECONNREFUSED", "ENOTFOUND"], [second, "ENOTFOUND", "ECONNREFUSED"]] as const) {
     const message = assistantMessages(fixture.agent.state.messages).at(-1)!;
     assert.ok(message.role === "assistant" && message.errorMessage?.includes(ownCode) && !message.errorMessage.includes(otherCode));

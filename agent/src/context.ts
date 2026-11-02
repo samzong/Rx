@@ -14,6 +14,8 @@ import { textTokens, total } from "./context-messages.ts";
 export { MAX_SUMMARY_CALLS, contextBudget } from "./context-plan.ts";
 export { textTokens, messageTokens, visibleMessage } from "./context-messages.ts";
 
+class SummaryBudgetError extends Error {}
+
 const SUMMARY_RULES = [
   "Preserve the original goal and later corrections, permissions, exclusions, and unresolved owner decisions.",
   "Keep decisions and reasons, completed and pending work, exact paths, commands, errors, and evidence that needs a new check.",
@@ -75,12 +77,13 @@ export function installContextControl(agent: Agent, models: Models, log: Session
         summarySignal.throwIfAborted();
         const allowedSources = mergeSources([...summarySources, ...chunk.sources]);
         let correction = "";
+        let correctionTarget = Math.max(64, Math.floor(budget.summary * 1.5));
         for (;;) {
           summarySignal.throwIfAborted();
           try {
             const result = await generateSummaryWithUsage(
               [{ role: "user", content: chunk.text, timestamp: Date.now() }], summaryModel, budget.summary,
-              undefined, undefined, summarySignal, `${SUMMARY_RULES}\nAllowed source ranges: ${sourceLabel(allowedSources)}.\n${correction}\nKeep the complete summary, including headings and citations, under ${Math.max(64, Math.floor(budget.summary * 1.5))} characters. Merge related points. Do not copy bulk sample data. Describe its purpose and cite its source.`, summary, "off",
+              undefined, undefined, summarySignal, `${SUMMARY_RULES}\nAllowed source ranges: ${sourceLabel(allowedSources)}.\n${correction}\nKeep the complete summary, including headings and citations, under ${correctionTarget} characters. Merge related points. Do not copy bulk sample data. Describe its purpose and cite its source.`, summary, "off",
               async (selected, context, options) => {
                 if (clampMaxTokensToContext(selected, context, budget.summary) < budget.summary) throw new Error("The summary request exceeds the model context budget");
                 const outputAbort = new AbortController();
@@ -88,24 +91,32 @@ export function installContextControl(agent: Agent, models: Models, log: Session
                 const requestOptions = transport.streamOptions(selected.api, { ...options, signal: requestSignal, reasoning: undefined, maxTokens: budget.summary, maxRetries: 0 });
                 const response = await models.streamSimple(selected, context, requestOptions);
                 let exceeded = false;
+                let attemptedTool = false;
                 for await (const event of response) {
                   const partial = "partial" in event ? event.partial : event.type === "done" ? event.message : event.type === "error" ? event.error : undefined;
-                  if (!partial || exceeded) continue;
+                  if (!partial) continue;
+                  if (!attemptedTool && partial.content.some((block) => block.type === "toolCall")) {
+                    attemptedTool = true;
+                    outputAbort.abort();
+                  }
+                  if (exceeded || attemptedTool) continue;
                   const output = partial.content.flatMap((block) => block.type === "text" ? [block.text] : block.type === "thinking" ? [block.thinking] : []);
-                  if (textTokens(output.join("\n")) > budget.summary || partial.content.some((block) => block.type === "toolCall")) {
+                  if (textTokens(output.join("\n")) > budget.summary) {
                     exceeded = true;
                     outputAbort.abort();
                   }
                 }
                 const completed = await response.result();
                 log.appendCompactionUsage(completed);
-                if (exceeded || completed.usage.output > budget.summary) throw new Error("The context summary exceeded its output budget");
                 const failure = transport.takeFailure();
                 summarySignal.throwIfAborted();
+                if (completed.content.some((block) => block.type === "toolCall") || attemptedTool) throw new Error("The context summary attempted to call a tool");
+                if (exceeded || completed.usage.output > budget.summary) throw new SummaryBudgetError("The context summary exceeded its output budget");
+                if (completed.stopReason === "length") throw new SummaryBudgetError("The context summary reached the provider output limit");
                 if (completed.stopReason !== "stop") throw new Error(failure ?? `Context summary failed: ${completed.stopReason === "error" ? completed.errorMessage ?? "model request failed" : completed.stopReason}`);
-                if (completed.content.some((block) => block.type === "toolCall")) throw new Error("The context summary attempted to call a tool");
                 const text = completed.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n").trim();
-                if (!text || textTokens(text) > budget.summary) throw new Error("The context summary is empty or exceeds its output budget");
+                if (!text) throw new Error("The context summary is empty");
+                if (textTokens(text) > budget.summary) throw new SummaryBudgetError("The context summary exceeded its output budget");
                 validateSummarySources(text, allowedSources);
                 return response;
               },
@@ -115,9 +126,13 @@ export function installContextControl(agent: Agent, models: Models, log: Session
             summarySources = validateSummarySources(summary, allowedSources);
             break;
           } catch (error) {
-            if (!(error instanceof CitationError) || correction || corrections <= 0) throw error;
+            const budgetFailure = error instanceof SummaryBudgetError;
+            if ((!(error instanceof CitationError) && !budgetFailure) || correction || corrections <= 0) throw error;
             corrections--;
-            correction = `The previous attempt failed source validation: ${error.message}. Generate a new summary from the supplied sources. Cite every substantive line. Use only the allowed source ranges.`;
+            if (budgetFailure) correctionTarget = Math.max(64, Math.floor(budget.summary / 4));
+            correction = budgetFailure
+              ? "The previous attempt exceeded the output budget. Generate a substantially shorter summary from the supplied original sources and the last valid summary. Do not use the failed draft as evidence."
+              : `The previous attempt failed source validation: ${(error as CitationError).message}. Generate a new summary from the supplied sources. Cite every substantive line. Use only the allowed source ranges.`;
           }
         }
       }

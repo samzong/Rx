@@ -1,5 +1,5 @@
 import { Agent, type AgentMessage, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type Api, type AssistantMessage, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type Models } from "@earendil-works/pi-ai";
+import { type Api, type Model, type Models } from "@earendil-works/pi-ai";
 import { fastStreamOptions } from "./acp-fast.ts";
 import { installContextControl } from "./context.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
@@ -10,6 +10,7 @@ import { codingTools } from "./tools.ts";
 import { installHooks, isHookContext } from "./hooks.ts";
 import type { HookConfiguration } from "./hook-types.ts";
 import { transportDiagnostics } from "./transport-errors.ts";
+import { retryControl, retryStream } from "./retry.ts";
 
 export function systemPrompt(cwd: string, now: Date = new Date()): { prompt: string; commands: SkillCommand[] } {
   const sections = [
@@ -49,31 +50,16 @@ export interface RxAgentOptions {
 
 const ROLE_ORIGIN: Record<string, Origin | undefined> = { assistant: "model", toolResult: "tool", system: "rx" };
 
-function abortedStream(model: Model<Api>): AssistantMessageEventStream {
-  const message: AssistantMessage = {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    stopReason: "aborted",
-    errorMessage: "Request was aborted",
-    timestamp: Date.now(),
-  };
-  const stream = createAssistantMessageEventStream();
-  stream.push({ type: "error", reason: "aborted", error: message });
-  stream.end(message);
-  return stream;
-}
-
 export function createRxAgent(options: RxAgentOptions): Agent {
   const transport = transportDiagnostics();
   const agent = new Agent({
-    streamFn: (model, context, streamOptions) => {
-      const requestOptions = transport.streamOptions(model.api, fastStreamOptions(model, streamOptions, options.fast?.() === true));
-      return streamOptions?.signal?.aborted ? abortedStream(model) : options.models.streamSimple(model, context, requestOptions);
-    },
+    streamFn: (model, context, streamOptions) => retryStream(
+      model, context, streamOptions,
+      (selected, input, requestOptions) => options.models.streamSimple(selected, input, transport.streamOptions(selected.api, fastStreamOptions(selected, requestOptions, options.fast?.() === true))),
+      transport.takeFailure,
+      (message) => { options.log.append("model", message); agent.state.messages.push(message); },
+      (event) => retryControl(agent).emit(event),
+    ),
     sessionId: options.log.id,
     initialState: {
       systemPrompt: options.systemPrompt,
@@ -85,10 +71,6 @@ export function createRxAgent(options: RxAgentOptions): Agent {
   });
   agent.subscribe((event) => {
     if (event.type !== "message_end") return;
-    if (event.message.role === "assistant") {
-      const failure = transport.takeFailure();
-      if (event.message.stopReason === "error" && failure) event.message.errorMessage = failure;
-    }
     options.log.append(isHookContext(event.message) ? "rx" : ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
   });
   installContextControl(agent, options.models, options.log);
