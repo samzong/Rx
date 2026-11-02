@@ -1,4 +1,10 @@
-# Rx
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo-light.svg">
+    <img src="assets/brand/logo-light.svg" alt="Rx" width="240" height="96">
+  </picture>
+</h1>
 
 `rx` launches rx-agent, Claude Code, Codex, OpenCode, Pi, DeepSeek Harness, and Kimi Code with one provider configuration. rx-agent is Rx's own coding agent, built from [`agent/`](agent/); the other harnesses run their native CLI.
 
