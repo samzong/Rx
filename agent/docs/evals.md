@@ -27,6 +27,33 @@ A token extracted from a normal ChatGPT sign-in is not interchangeable with it.
 API keys use the provider's API billing rather than a CLI subscription.
 The runner does not load, copy, or refresh credential stores.
 
+For Codex through Tokener, supply `TOKENER_API_KEY` in the runner environment:
+
+```sh
+make eval AGENT=codex ARGS='--codex-provider tokener --codex-model gpt-6-sol --codex-effort medium'
+```
+
+The baseline pins `gpt-6-sol` and `medium`. This route uses Codex's native
+Responses provider at `https://api.tokener.ai/v1`, with WebSockets disabled.
+Only `TOKENER_API_KEY` enters the container. Native OpenAI credentials do not enter it.
+The runner keeps `--ignore-user-config` and does not mount host credentials.
+The route checks only the final `turn.failed` event. HTTP 401/403 stop the run.
+For HTTP 400/404 or an omitted status, a message that says the model does not exist also stops the run.
+When Codex omits the status, a raw JSON error also stops the run if its code is `model_not_found`.
+A raw JSON error message that says `Unsupported model` also stops the run.
+Explicit HTTP 5xx failures and reconnecting notices do not stop the run.
+These cases use captured Codex 0.163.0 output from a local fixture with a synthetic key.
+Actual Tokener rejection bodies remain unverified.
+The Tokener launcher does not fix a model or effort, and its catalog order can change.
+The route defaults to `gpt-6-sol` and `medium` in `tokenerCodexDefaults`.
+The explicit pin avoids unstable catalog selection. The gateway serves `gpt-6-sol`,
+and `medium` matches Codex's default effort for this model and the Claude baseline effort.
+Use `--codex-model` and `--codex-effort` to select another available configuration.
+The bundled `data/providers.json` snapshot lists `gpt-5.6-*` models, while the live
+gateway serves `gpt-6-sol`. This evaluation does not regenerate that snapshot.
+The launcher uses command authentication to read the environment. The evaluation route
+uses Codex's `env_key` for the same variable, without another process or credential file.
+
 These commands select a split, validate graders, or run another agent:
 
 ```sh
@@ -110,8 +137,13 @@ The final image contains the Rx executable, not its TypeScript source or tests.
 Rebuild the image after source or dependency changes.
 Claude uses the probed CLI defaults, pinned to `claude-sonnet-5-5` and `medium`.
 Rx uses `deepseek/deepseek-flash` with its default thinking level, reported by ACP.
-Codex uses its native defaults; do not publish a baseline until its actual model
-and reasoning level have been verified and fixed for that run.
+Codex without a selected provider keeps its native defaults.
+The Tokener route fixes the requested model and effort in native CLI overrides.
+Run metadata and each result retain that launch configuration separately from events.
+If JSONL omits model controls, the model and thinking fields use the launch configuration.
+Those fields identify the requested route, not an independently observed upstream model alias.
+Codex JSONL continues to supply completion, output text, and cumulative turn usage.
+Missing cost telemetry stays `unknown`.
 It also records every attempt, including failures and one retry permitted only after an infrastructure failure.
 A scored failure ends the task without a retry.
 Development and holdout results remain separate. Correctness, constraints,
@@ -136,6 +168,25 @@ Reports use the first scored attempt (`completed` or `failed`) for each task: pa
 If no attempt is scored, they show the latest state. All infrastructure-error attempts
 are counted separately, including those followed by a scored attempt.
 Reports keep per-dimension numerators and denominators.
+
+## Recorded baseline
+
+The admitted task set has 13 development tasks and five holdout tasks, split by family.
+It covers 18 of the planned 40 tasks. The input and grader hashes were fixed before the Codex run.
+
+| Agent | Model and effort | Development pass@1 | Holdout pass@1 | Retries | Infrastructure errors | Method |
+| --- | --- | --- | --- | --- | --- | --- |
+| Claude Code 2.1.314 | claude-sonnet-5-5, medium | 9/13 | 5/5 | 5 | 0 | Retrospective artifact re-grade |
+| rx-agent 0.1.2 through ACP | deepseek/deepseek-flash, high | 10/13 | 5/5 | 6 | 4 | Retrospective artifact re-grade |
+| Codex 0.163.0 through Tokener | gpt-6-sol, medium | 8/13 | 5/5 | 0 | 0 | Fresh run |
+
+Retrospective rows score the first scored attempt after retries. The Codex row uses one fresh attempt per task. These rows are not same-condition comparisons.
+
+Codex started each task once, with zero infrastructure errors and zero retries.
+All 18 native runs completed before the deadline. Five tasks failed independent acceptance checks.
+Graders did not change in response to Codex outputs. These small-set results do not establish general agent quality.
+CLI cost telemetry remains unknown. Gateway counters cover a time window and cannot exclude concurrent traffic.
+The combined baseline ROADMAP item remains unchecked because the planned 30+10 set is still incomplete.
 
 ## ACP lifecycle and Lody
 

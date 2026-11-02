@@ -34,6 +34,7 @@ export interface AgentResult {
   events: unknown[];
   usage: { input: number; output: number } | "unknown";
   cost: { usd: number; basis: "agent_reported" } | "unknown";
+  configuration?: { provider: string; model: string; effort: string };
   infrastructureError?: string;
 }
 export interface Attempt {

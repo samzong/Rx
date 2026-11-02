@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
-import { credentials, nativeResult } from "./adapters.ts";
+import { codexArgs, credentials, nativeResult, runAgent, tokenerCodexDefaults } from "./adapters.ts";
 import { Budget } from "./budget.ts";
 import { launchProcess } from "./launch.ts";
 import { inside, loadTasks, saveArtifacts, treeHash } from "./files.ts";
@@ -76,7 +76,7 @@ test("native completion requires a successful process and terminal event", () =>
 test("only infrastructure failures retry and the first scored attempt determines pass@1", () => {
   const attempts: Attempt[] = [
     { task: "a", split: "development", attempt: 0, state: "failed", seconds: 3, checks: [{ id: "a", dimension: "correctness", passed: false, exitCode: 1 }] },
-    { task: "b", split: "holdout", attempt: 0, state: "infra_error", seconds: 2, checks: [] },
+    { task: "b", split: "holdout", attempt: 0, state: "infra_error", seconds: 2, checks: [{ id: "b", dimension: "correctness", passed: false, exitCode: null }] },
     { task: "a", split: "development", attempt: 1, state: "completed", seconds: 4, checks: [{ id: "a", dimension: "correctness", passed: true, exitCode: 0 }] },
     { task: "c", split: "development", attempt: 0, state: "planned", seconds: 0, checks: [] },
   ];
@@ -93,6 +93,7 @@ test("only infrastructure failures retry and the first scored attempt determines
   assert.equal(summary[0]!.seconds, 7);
   assert.equal(summary[1]!.states.infra_error, 1);
   assert.equal(summary[1]!.infrastructureErrors, 1);
+  assert.deepEqual(summary[1]!.dimensions.correctness, { passed: 0, n: 0 });
   const recovered = summarize([...attempts, { task: "b", split: "holdout", attempt: 1, state: "completed", seconds: 1, checks: [{ id: "b", dimension: "correctness", passed: true, exitCode: 0 }] }])[1]!;
   assert.equal(recovered.states.completed, 1);
   assert.equal(recovered.infrastructureErrors, 1);
@@ -130,6 +131,54 @@ test("the tested agent receives only its selected credential variables", () => {
   assert.deepEqual(credentials("rx-agent", env), { DEEPSEEK_API_KEY: "example-d" });
   assert.deepEqual(credentials("claude", env), { ANTHROPIC_API_KEY: "example-a" });
   assert.deepEqual(credentials("codex", env), {});
+});
+
+
+test("Codex Tokener retains native events and ignores non-terminal rejection text", async () => {
+  const root = mkdtempSync(join(scratchBase, "rx-evals-tokener-"));
+  const previousPath = process.env.PATH;
+  try {
+    const configuration = { provider: "tokener", model: "example-model", effort: "medium" } as const;
+    const source = { TOKENER_API_KEY: "synthetic-gateway-credential", OPENAI_API_KEY: "synthetic-unrelated", CODEX_ACCESS_TOKEN: "synthetic-subscription" };
+    const env = credentials("codex", source, [], configuration);
+    assert.deepEqual(env, { TOKENER_API_KEY: source.TOKENER_API_KEY });
+    assert.deepEqual(credentials("codex", source), { OPENAI_API_KEY: source.OPENAI_API_KEY, CODEX_ACCESS_TOKEN: source.CODEX_ACCESS_TOKEN });
+    assert.deepEqual(credentials("claude", source), {});
+    const args = codexArgs(configuration);
+    assert.ok(args.includes("--ignore-user-config"));
+    assert.ok(args.includes('model_provider="tokener"'));
+    assert.ok(args.includes('model="example-model"'));
+    assert.ok(args.includes('model_reasoning_effort="medium"'));
+    assert.ok(args.some((value) => value.includes('env_key="TOKENER_API_KEY"') && value.includes('wire_api="responses"') && value.includes('supports_websockets=false')));
+    assert.equal(JSON.stringify(args).includes(source.TOKENER_API_KEY), false);
+    assert.equal(codexArgs().some((value) => value.includes("tokener")), false);
+    writeFileSync(join(root, "docker"), '#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"ready"}})+"\\n"+JSON.stringify({type:"turn.completed",usage:{input_tokens:12,output_tokens:3}})+"\\n")});\n', { mode: 0o755 });
+    process.env.PATH = [root, dirname(process.execPath), previousPath ?? ""].join(delimiter);
+    const result = await runAgent("codex", `sha256:${"0".repeat(64)}`, root, "Synthetic task", env, undefined, configuration);
+    assert.equal(result.completed, true);
+    assert.equal(result.text, "ready");
+    assert.equal(result.model, configuration.model);
+    assert.equal(result.thinking, configuration.effort);
+    assert.deepEqual(result.configuration, configuration);
+    assert.deepEqual(result.usage, { input: 12, output: 3 });
+    assert.equal(result.cost, "unknown");
+    for (const message of ["unexpected status 503: model gpt-6-sol is not available", "unexpected status 500: invalid max_output_tokens", "unexpected status 400: invalid max_output_tokens", "unexpected status 404: route not found", "model_not_found"]) {
+      const transient = [
+        ...Array.from({ length: 5 }, (_, index) => ({ type: "error", message: `Reconnecting... ${index + 1}/5 (unexpected status 401: invalid token, model_not_found)` })),
+        { type: "item.completed", item: { type: "agent_message", text: "The fixture contains status 401 and model_not_found." } },
+        { type: "turn.failed", error: { message } },
+      ].map((event) => JSON.stringify(event)).join("\n");
+      writeFileSync(join(root, "docker"), `#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(${JSON.stringify(transient)});process.exitCode=1});\n`, { mode: 0o755 });
+      await assert.rejects(runAgent("codex", `sha256:${"0".repeat(64)}`, root, "Synthetic task", env, undefined, tokenerCodexDefaults), (error: unknown) => {
+        assert.equal((error as { abortRun: boolean }).abortRun, false);
+        return true;
+      });
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("grader Docker mounts protect artifacts and checks while agent work stays writable", async () => {
