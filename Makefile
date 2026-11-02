@@ -36,7 +36,12 @@ agent-check: agent-deps
 	cd agent && pnpm audit && pnpm typecheck && pnpm test
 
 agent: agent-deps
-	cd agent && bun build --compile $(if $(RX_BUILD),--define 'RX_BUILD="$(RX_BUILD)"') src/cli.ts --outfile ../$(AGENT)
+	mkdir -p "$(dir $(AGENT))"
+	@build_dir=$$(mktemp -d "$(abspath $(dir $(AGENT)))/rx-agent-build.XXXXXX") && \
+	trap 'rm -rf "$$build_dir"' EXIT && \
+	trap 'exit 1' HUP INT TERM && \
+	cd "$$build_dir" && \
+	bun build --compile $(if $(RX_BUILD),--define 'RX_BUILD="$(RX_BUILD)"') "$(CURDIR)/agent/src/cli.ts" --outfile "$(abspath $(AGENT))"
 
 install: agent
 	$(if $(RX_BUILD),RX_BUILD='$(RX_BUILD)') $(CARGO) install --path . --locked
