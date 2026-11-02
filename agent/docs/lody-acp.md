@@ -156,9 +156,69 @@ Both capability declarations are required before Lody starts an anchored fork.
 
 ## Plans and elicitation
 
-These capabilities are reserved for a later PR and are not advertised here.
+RX-ACP-008 owns task lists and structured questions.
 The Plan control excluded by RX-ACP-001 means the `plan_mode` configuration option.
 It does not prohibit standard `plan` session updates.
+These tools do not change tool permissions or add agent-side Lody capability declarations.
+
+## Task lists
+
+The `todo` tool accepts `entries`, the complete list of tasks.
+Each entry has `content`, `status` (`pending`, `in_progress`, or `completed`), and optional `priority` (`high`, `medium`, or `low`).
+The default priority is `medium`. An empty list clears the task list.
+The tool replaces the list and does not execute tasks.
+
+The tool result stores `{version: 1, entries}` in `details` in the existing session log.
+ACP emits `sessionUpdate: "plan"` after each successful result.
+Load replays every snapshot at its original position after that tool result.
+This preserves the plan for each historical turn in Lody.
+Failed or interrupted tool calls do not update the plan.
+The CLI and REPL also expose `todo` and print its checklist to stderr.
+
+Whole-list replacement follows Codex, OpenCode, and deepseek-harness.
+The strongest alternative is the incremental `list`/`add`/`toggle`/`clear` interface in Lody's pi adapter.
+Replacement reuses the result log and avoids mutable task identifiers or a second state store.
+For unusually large task lists, repeated full lists cost more input tokens. Revisit incremental changes if measured task-list traffic dominates a turn.
+
+## Structured questions
+
+Rx registers `ask_user` only when the ACP client declares `clientCapabilities.elicitation.form`.
+The CLI and REPL do not register it. The model asks questions in its text response there.
+A terminal form is the strongest alternative. It requires another input and cancellation lifecycle, which these clients do not need.
+
+`ask_user` accepts `questions`, a list of 1 to 8 questions.
+Each question has a unique `id`, `question`, and optional `header`, `options`, `multiSelect`, and `allowCustomAnswer`.
+Each option has a unique `label` and optional `description`.
+Omit options for free text. `multiSelect: true` requires options.
+Custom answers are enabled by default. Set `allowCustomAnswer: false` to restrict a choice to its options.
+
+Each question maps to a generated field key, independent of its model-supplied ID.
+Single choices use a string with `oneOf`. Multiple choices use an array with `items.anyOf`.
+Free-text questions use a string. Optional custom fields carry `_meta.lody.elicitation.customAnswerFor`.
+If the client declares `_meta.lody.elicitation: {version: 1, answerNotes: true}`, optional note fields carry `noteFor`.
+Lody metadata is version 1. Request metadata sets `autoResolveAfterSeconds: null`, so Rx does not time out unanswered questions.
+
+Accepted results return `{answers: {<id>: <string or string[]>}, notes?: {<id>: <string>}}`.
+A custom answer replaces the selected answer. Skipped fields stay absent.
+Decline or cancel returns `{cancelled: true}` and lets the model continue.
+Invalid supplied answers fail the tool instead of fabricating a user answer.
+Cancelling the turn aborts the tool and sends protocol cancellation to the client.
+The turn finishes even if the client ignores cancellation. A late answer does not enter the log or another turn.
+Connection closure uses the same agent abort path under RX-CANCEL-001.
+
+## Lody acceptance
+
+Use a Lody Rx configuration that starts the binary built from this checkout.
+Ask Rx to create a two-step task list and mark its first task in progress.
+The task panel must show both tasks with the expected status. Lody does not render priority; check it in the session log.
+Complete the tasks, reopen the session, and make sure that the historical plan appears without executing the tools again.
+
+Ask Rx to call `ask_user` with a choice, a multiple choice, and a free-text question.
+The form card must show the questions. Answer them and add a note.
+The model must receive the answer and note and finish the turn.
+Start another question and cancel the turn. The session must accept another prompt without waiting for the unanswered card.
+Also select Cancel on the card. The model must receive `{cancelled: true}` and continue.
+Lody form cards offer Submit answers and Cancel. They do not expose decline, which the unit tests cover.
 
 ## Other limits
 

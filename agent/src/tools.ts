@@ -5,6 +5,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { todoTool } from "./todo.ts";
 
 export const READ_MAX_LINES = 2000;
 export const READ_MAX_BYTES = 50_000;
@@ -317,6 +318,6 @@ export function bashTool(cwd: string): AgentTool<typeof bashParams, undefined> {
   };
 }
 
-export function codingTools(cwd: string, model: () => Model<Api>): AgentTool<any, undefined>[] {
-  return [readTool(cwd, model), writeTool(cwd), editTool(cwd), bashTool(cwd)];
+export function codingTools(cwd: string, model: () => Model<Api>): AgentTool[] {
+  return [readTool(cwd, model), writeTool(cwd), editTool(cwd), bashTool(cwd), todoTool()];
 }

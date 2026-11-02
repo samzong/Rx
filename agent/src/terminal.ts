@@ -40,6 +40,8 @@ export function render(event: AgentEvent, showThinking: boolean): void {
     if (message.stopReason === "aborted") stderr.write("[aborted]\n");
   } else if (event.type === "tool_execution_start") {
     stderr.write(dim(`• ${event.toolName} ${argsSummary(event.args)}\n`));
+  } else if (event.type === "tool_execution_end" && event.toolName === "todo" && !event.isError) {
+    for (const block of event.result.content) if (block.type === "text") stderr.write(`${block.text}\n`);
   } else if (event.type === "tool_execution_end" && event.isError) {
     const text = (event.result?.content ?? []).find((b: { type: string }) => b.type === "text")?.text ?? "";
     stderr.write(dim(`  ✗ ${firstLine(text)}\n`));
