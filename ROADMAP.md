@@ -46,8 +46,9 @@ Two lines that can run in parallel. Line A merges first; line B rebases onto it.
 - [x] `rx-agent login` / `logout` for its own subscriptions and API keys,
   independent of rx providers.
 - [x] MCP tools through pi-mcp, from `$RX_HOME/mcp.json` and ACP new/load.
-- [ ] Ship rx-agent in the release workflow and `rx update`.
-- [ ] Run rx-agent through ACP in Lody, or Zed if Lody cannot host a custom agent.
+- [x] Ship rx-agent in its release workflow and update managed installations
+  through background checks at launch. `rx update` updates Rx itself.
+- [x] Run rx-agent through ACP in Lody.
 
 Done when the owner completes at least one real task with rx-agent every day.
 
