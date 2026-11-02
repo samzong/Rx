@@ -149,7 +149,7 @@ async function readEditor(commands: readonly SkillCommand[], history: readonly s
   return input;
 }
 
-export async function runRepl(agent: Agent, banner: string, commands: readonly SkillCommand[], cwd: string, initialPrompt?: string): Promise<void> {
+export async function runRepl(agent: Agent, banner: string, commands: readonly SkillCommand[], cwd: string, initialPrompt?: string, beginTurn?: () => void): Promise<void> {
   const interactive = Boolean(stdin.isTTY && stdout.isTTY);
   const fdPath = interactive ? findExecutable(["fd", "fdfind"]) : null;
   const hint = interactive ? ` · / commands and skills, @ files${fdPath ? "" : " (needs fd)"}` : "";
@@ -195,6 +195,7 @@ export async function runRepl(agent: Agent, banner: string, commands: readonly S
   };
   const run = async (input: string) => {
     if (input === "/compact") {
+      beginTurn?.();
       manual = true;
       renderCompaction({ id: "manual", status: "in_progress" });
       try {

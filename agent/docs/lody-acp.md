@@ -11,6 +11,7 @@ Rx advertises only these capabilities:
 | Steering | `{version:1, transport:"request", upstreamTurn:"same", configPolicy:"active"}` | Inject user input into the active prompt with its current configuration. |
 | Worktree project | `{version:1}` | Keep the logical project separate from the execution directory. |
 | Usage | `{version:1}` | Report cumulative usage per model within an accounting scope. |
+| Fork at turn | `{version:1}` | Copy history through a selected turn without changing its source. |
 
 ## Steering
 
@@ -125,7 +126,33 @@ Load the session and complete another prompt. Prior scopes remain separate from 
 
 ## Forks and turn identity
 
-These capabilities are reserved for a later PR and are not advertised here.
+ACP SDK 2.0.2 exposes `session/fork` through its public `/unstable` entry point. The dependency version does not change.
+
+Initialization declares `sessionCapabilities.fork: {}` and `_meta.lody.forkAtTurn: {version: 1}` under `agentCapabilities`.
+At the start of each ACP prompt, Rx appends a versioned `turn` record and sends an empty `agent_message_chunk`.
+The update carries `_meta.lody.turnId`. Load replays the same identity after the user message and before its response.
+The `/compact` command and blocked prompts also get distinct boundaries. CLI prompts and manual compaction write the same records.
+
+`session/fork` accepts `sessionId`, `cwd`, optional `mcpServers`, and optional `_meta.lody.forkAtTurn: {version: 1, turnId?}`.
+The selected turn is inclusive. Rx copies its user input, response, tools, and control records up to the next turn boundary.
+Without `turnId`, Rx copies all complete source records. An unknown turn is an error.
+The new header supplies a new session ID, creation time, and requested working directory.
+The source stays unchanged. The fork returns the complete configuration snapshot and can accept a prompt immediately or after load.
+
+Fork reads one snapshot of the source, including when its process is active.
+Only newline-terminated records count. Rx never opens the source for repair or takes its writer lock.
+An unfinished tool call gets an error result in the copy under RX-RESUME-001. Fork never repeats the tool.
+Checkpoints and clearing records before the boundary keep their original ordinals and projection.
+
+If this process owns the source session, fork inherits its current model, thinking level, and Fast value.
+Client `_meta.lody.sessionConfig` values override that selection, with model applied before thinking and Fast.
+For a source in another process, the client supplies its current choices through `sessionConfig`.
+Without that metadata, a separate process uses its launch defaults because logs do not store session choices.
+Lody sends `sessionConfig` when it starts the fork process. MCP connections follow the same path as new and load.
+
+Lody reads turn identity from `update._meta.lody.turnId` and stores it on the active assistant entry.
+Its fork service copies history through the selected assistant entry, then sends that identity as `forkAtTurn.turnId`.
+Both capability declarations are required before Lody starts an anchored fork.
 
 ## Plans and elicitation
 

@@ -7,6 +7,7 @@ import { setMessageSources, type HistorySnapshot, type SourceRange } from "./con
 import { danglingToolCalls, sessionRecords, validateCheckpoint, validatePrune, type ContextPrune, type MessageEntry } from "./session-projection.ts";
 import { isAlive, tryLink } from "./pid-lock.ts";
 import { skillInvocationText } from "./skills.ts";
+import { type LocatedTurn, type SessionTurn } from "./session-turns.ts";
 
 export { checkpointMessages, danglingToolCalls } from "./session-projection.ts";
 
@@ -53,6 +54,7 @@ export interface LoadedSession {
   usageMessages: AgentMessage[];
   inputs: Map<string, Record<string, unknown>>;
   repaired: number;
+  turns: LocatedTurn[];
 }
 
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -75,7 +77,7 @@ function ensureDir(home: string): void {
   chmodSync(sessionsDir(home), 0o700);
 }
 
-function readLog(path: string): { values: unknown[]; end: number; size: number } {
+function readLog(path: string): { values: unknown[]; end: number; size: number; buffer: Buffer } {
   const buffer = readFileSync(path);
   const end = buffer.lastIndexOf(0x0a) + 1;
   const lines = buffer.subarray(0, end).toString("utf8").split("\n");
@@ -87,7 +89,7 @@ function readLog(path: string): { values: unknown[]; end: number; size: number }
       throw new Error(`${path}:${index + 1}: corrupt log line: ${(error as Error).message}`);
     }
   });
-  return { values, end, size: buffer.length };
+  return { values, end, size: buffer.length, buffer };
 }
 
 const heldLocks = new Set<string>();
@@ -135,7 +137,7 @@ function lockSession(home: string, id: string): boolean {
   return true;
 }
 
-function unlockSession(home: string, id: string): void {
+export function unlockSession(home: string, id: string): void {
   const path = lockPath(home, id);
   heldLocks.delete(path);
   try {
@@ -226,11 +228,44 @@ export class SessionLog {
     }
   }
 
+  static fork(home: string, sourceId: string, cwd: string, turnId?: string): LoadedSession {
+    const path = sessionPath(home, sourceId);
+    const { values, buffer, end } = readLog(path);
+    readHeader(path, values[0]);
+    const { turns } = sessionRecords(values.slice(1), path);
+    let count = values.length;
+    if (turnId !== undefined) {
+      const turn = turns.findIndex((candidate) => candidate.id === turnId);
+      if (turn < 0) throw new Error(`session ${sourceId} has no turn ${turnId}`);
+      const next = turns[turn + 1];
+      if (next) count = next.index + 1;
+    }
+    let offset = buffer.indexOf(0x0a) + 1;
+    const start = offset;
+    for (let index = 1; index < count; index++) offset = buffer.indexOf(0x0a, offset) + 1;
+    const prefix = buffer.subarray(start, count === values.length ? end : offset);
+    const log = SessionLog.create(home, cwd);
+    try {
+      appendFileSync(log.path, prefix);
+      return SessionLog.load(home, log.path);
+    } catch (error) {
+      unlockSession(home, log.id);
+      rmSync(log.path, { force: true });
+      throw error;
+    }
+  }
+
+  beginTurn(): string {
+    const id = uuidv7();
+    this.appendRecord({ type: "turn", version: 1, id, through: this.messageCount });
+    return id;
+  }
+
   private static load(home: string, path: string): LoadedSession {
     const { values, end, size } = readLog(path);
     const [first, ...rest] = values;
     const header = readHeader(path, first);
-    const { entries, inputs, messages, usageThrough } = sessionRecords(rest, path);
+    const { entries, inputs, messages, usageThrough, turns } = sessionRecords(rest, path);
     const originProjectPath = originProject(rest, path);
     const history = entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
     const usageMessages = entries.slice(usageThrough).filter((entry) => entry.purpose !== "compaction").map((entry) => entry.message);
@@ -252,7 +287,7 @@ export class SessionLog {
       history.push(result);
       usageMessages.push(result);
     }
-    return { log, entries, messages, history, usageMessages, inputs, repaired: dangling.length };
+    return { log, entries, messages, history, usageMessages, inputs, repaired: dangling.length, turns };
   }
 
   append(origin: Origin, message: AgentMessage): MessageEntry {
@@ -326,7 +361,7 @@ export class SessionLog {
     };
   }
 
-  private appendRecord(entry: MessageEntry | CompactionCheckpoint | ToolInputEntry | ContextPrune | ProjectMetadata): void {
+  private appendRecord(entry: MessageEntry | CompactionCheckpoint | ToolInputEntry | ContextPrune | ProjectMetadata | SessionTurn): void {
     const line = `${JSON.stringify(entry)}\n`;
     const size = statSync(this.path).size;
     try {

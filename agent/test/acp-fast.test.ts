@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { test } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
 import { InMemoryCredentialStore, normalizeContext } from "@earendil-works/pi-ai";
@@ -14,6 +14,25 @@ process.env.RX_HOME = tempDir();
 
 const model = getBuiltinModel("openai-codex", "gpt-6.1-sol");
 const apiKey = `local.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "local-test" } })).toString("base64url")}.local`;
+
+test("fork inherits current thinking and Fast before applying Lody session configuration", async () => {
+  const credentials = new InMemoryCredentialStore();
+  await credentials.modify("openai-codex", async () => ({ type: "oauth", access: apiKey, refresh: "local", expires: Date.now() + 3600000 }));
+  const models = builtinModels({ credentials });
+  const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model, thinking: "high" }) });
+  await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: 1, clientCapabilities: { session: { configOptions: { boolean: {} } } } });
+    const cwd = tempDir();
+    const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
+    await ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", type: "select", value: "low" });
+    const source = await ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "fast", type: "boolean", value: true });
+    const inherited = await ctx.request(acp.methods.agent.session.fork, { sessionId, cwd });
+    assert.deepEqual(inherited.configOptions, source.configOptions);
+    const overridden = await ctx.request(acp.methods.agent.session.fork, { sessionId, cwd, _meta: { lody: { sessionConfig: { version: 1, configOptionValues: { thinking: "high", fast: false } } } } });
+    assert.equal(overridden.configOptions?.find((option) => option.id === "thinking")?.currentValue, "high");
+    assert.equal(overridden.configOptions?.find((option) => option.id === "fast")?.currentValue, false);
+  });
+});
 
 test("Fast reaches the Codex wire payload through streamSimple and preserves the payload callback", async () => {
   for (const fast of [false, true]) {

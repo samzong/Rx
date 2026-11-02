@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { createAssistantMessageEventStream, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
@@ -44,7 +44,7 @@ for (const cancel of [false, true]) {
       } else {
         const sequence = updates.filter((update) => update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "tool_call");
         assert.deepEqual(sequence.map((update) => update.sessionUpdate === "agent_message_chunk" ? update.content : update.title), [
-          { type: "text", text: "PARTIAL" }, "Retrying model request (1/3)", { type: "text", text: "COMPLETE" },
+          { type: "text", text: "" }, { type: "text", text: "PARTIAL" }, "Retrying model request (1/3)", { type: "text", text: "COMPLETE" },
         ]);
       }
     });

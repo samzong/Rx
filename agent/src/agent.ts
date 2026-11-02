@@ -77,5 +77,12 @@ export function createRxAgent(options: RxAgentOptions): Agent {
   });
   installContextControl(agent, options.models, options.log, options.onUsage);
   if (options.hooks) installHooks(agent, options.log, options.hooks);
+  if (options.origin === "cli") {
+    const prompt = agent.prompt.bind(agent);
+    agent.prompt = ((...args: Parameters<Agent["prompt"]>) => {
+      options.log.beginTurn();
+      return prompt(...args);
+    }) as Agent["prompt"];
+  }
   return agent;
 }

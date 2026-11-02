@@ -197,7 +197,7 @@ async function main(argv: string[]): Promise<number> {
     const banner = loaded
       ? `rx ${VERSION} · resumed ${log.id} (${loaded.messages.length} messages${loaded.repaired ? `, ${loaded.repaired} interrupted tool calls marked` : ""})`
       : `rx ${VERSION} · session ${log.id}`;
-    await runRepl(agent, banner, prompt.commands, agentCwd, initialPrompt);
+    await runRepl(agent, banner, prompt.commands, agentCwd, initialPrompt, () => { log.beginTurn(); });
     return 0;
   } finally {
     process.off("SIGINT", cancelStartup);

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { McpServer } from "@agentclientprotocol/sdk";
+import type { McpServer } from "@agentclientprotocol/sdk/unstable";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { McpAbortError, McpClient, McpConnectionClosedError, McpError, McpHttpError, McpTimeoutError, StdioTransport, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 import { Type } from "typebox";

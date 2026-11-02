@@ -31,7 +31,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | CLI, REPL, print mode | Rx | `src/cli.ts`, `src/terminal.ts` | Not applicable. |
 | Provider handoff validation and transport error capture | Rx | `src/rx-provider.ts`, `src/transport-errors.ts` | Not applicable. |
 | ACP server: session controls, usage reports, cancel | Rx | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not applicable. |
-| Lody extensions: steering, startup configuration, worktree project, usage | Rx | `src/acp-lody.ts`, `src/acp-session-usage.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.0.2. |
+| Lody extensions: steering, startup configuration, worktree project, usage, fork, turn identity | Rx | `src/acp-lody.ts`, `src/acp-session-usage.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.0.2. |
 | Fast service tier injection | Rx | `src/acp-fast.ts` | Not applicable. |
 | Sandbox for tool execution | Not built | Tools run with your permissions (RX-PERM-001) | `ROADMAP.md`, after phase 1. |
 | Eval set and runner | Not built | No score exists for a change in behavior | `ROADMAP.md`, phase 1 B. |

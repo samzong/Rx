@@ -134,7 +134,7 @@ test("CLI failures preserve persistence, --continue recovers, and resume survive
   assert.ok(requests[0]!.messages.some((message) => typeof message.content === "string" && message.content.includes(literal)));
   assert.deepEqual(readdirSync(join(rxHome, "sessions")), [`${id}.jsonl`]);
   const entries = readFileSync(path, "utf8").trim().split("\n").map((line: string) => JSON.parse(line));
-  assert.deepEqual(entries.slice(1).map((entry) => entry.origin), ["cli", "cli", "model"]);
+  assert.deepEqual(entries.filter((entry) => entry.type === "message").map((entry) => entry.origin), ["cli", "cli", "model"]);
   const globalSkill = join(home, ".agents", "skills", "global-helper", "SKILL.md");
   mkdirSync(join(globalSkill, ".."), { recursive: true });
   writeFileSync(globalSkill, "---\nname: global-helper\ndescription: Global recovery helper\n---\nUse when recovering history.\n");

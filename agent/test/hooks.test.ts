@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk/unstable";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRxAgent } from "../src/agent.ts";
 import { createAcpApp } from "../src/acp.ts";
