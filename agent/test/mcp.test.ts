@@ -101,10 +101,12 @@ test("MCP timeout and cancellation fail visibly and close the server", async () 
   const home = tempDir();
   const cwd = tempDir();
   const trace = join(home, "trace.jsonl");
-  writeFileSync(join(home, "mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [fixture, `--trace=${trace}`], timeout: 0.3 } } }));
+  writeFileSync(join(home, "mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [fixture, `--trace=${trace}`], timeout: 2 } } }));
   const mcp = await connectMcp({ home, cwd });
-  const slow = mcp.tools.find((tool) => tool.name === "mcp__fixture__slow")!;
+  const slow = mcp.tools.find((tool) => tool.name === "mcp__fixture__slow");
   try {
+    assert.deepEqual(mcp.warnings, []);
+    assert.ok(slow);
     await assert.rejects(slow.execute("timeout", {}), /MCP server fixture: request timed out/);
     const controller = new AbortController();
     const request = slow.execute("cancel", {}, controller.signal);
