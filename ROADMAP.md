@@ -56,7 +56,7 @@ Done when the owner completes at least one real task with rx-agent every day.
 
 - [ ] 30 eval tasks from past sessions plus a 10-task holdout set, stored
   outside the repository under `~/.rx/evals/`.
-- [ ] A runner and task schema in this repository.
+- [x] A runner and task schema in this repository.
 - [ ] Baseline scores for Claude Code and Codex.
 
 Done when one command scores any agent on the task set.

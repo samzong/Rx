@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "type": "string",
+      "enum": [
+        "development",
+        "holdout"
+      ]
+    },
+    "requirement": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "prompt",
+        "constraints"
+      ],
+      "additionalProperties": false
+    },
+    "initial": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "base": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "directory",
+        "sha256",
+        "base"
+      ],
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "instructions",
+        "runtime"
+      ],
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checks": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dimension": {
+                "type": "string",
+                "enum": [
+                  "correctness",
+                  "constraints",
+                  "evidence"
+                ]
+              },
+              "argv": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "dimension",
+              "argv"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "directory",
+        "revision",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alternativeDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "incorrectDirectory": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "directory",
+        "alternativeDirectory",
+        "incorrectDirectory"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rx",
+                  "lody",
+                  "claude",
+                  "codex"
+                ]
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "kind",
+              "reference"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "reconstruction": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sources",
+        "reconstruction"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "version",
+    "id",
+    "family",
+    "split",
+    "requirement",
+    "initial",
+    "environment",
+    "acceptance",
+    "reference",
+    "provenance"
+  ],
+  "additionalProperties": false
+}
