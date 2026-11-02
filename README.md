@@ -6,13 +6,80 @@
 
 ## Install
 
-Requires Rust, [Bun](https://bun.sh), and pnpm.
+Prebuilt binaries need no Rust, Bun, or pnpm. Download the matching archives
+from [Rx v0.2.0](https://github.com/samzong/Rx/releases/tag/v0.2.0) and
+[rx-agent v0.1.2](https://github.com/samzong/Rx/releases/tag/rx-agent-v0.1.2).
+Rx archives contain only `rx`. Install both binaries for the steps below.
+
+| Platform | Rx archive | rx-agent archive |
+| --- | --- | --- |
+| macOS Apple Silicon | `rx-macos-aarch64.tar.gz` | `rx-agent-darwin-arm64.tar.gz` |
+| macOS Intel | `rx-macos-x86_64.tar.gz` | `rx-agent-darwin-x64.tar.gz` |
+| Linux x86_64 | `rx-linux-x86_64.tar.gz` | `rx-agent-linux-x64.tar.gz` |
+| Windows x86_64 | `rx-windows-x86_64.zip` | `rx-agent-windows-x64.zip` |
+
+Download `SHA256SUMS` from each release into separate directories with its archive.
+Make sure that each archive matches its SHA-256 entry before extraction.
+On macOS Apple Silicon, run these commands in the two download directories:
+
+```bash
+grep ' rx-macos-aarch64.tar.gz$' SHA256SUMS | shasum -a 256 -c -
+```
+
+```bash
+grep ' rx-agent-darwin-arm64.tar.gz$' SHA256SUMS | shasum -a 256 -c -
+```
+
+Extract both archives. On macOS or Linux, install the extracted binaries:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+install -m 755 /path/to/extracted/rx "$HOME/.local/bin/rx"
+install -m 755 /path/to/extracted/rx-agent "$HOME/.local/bin/rx-agent"
+for name in rxa rxc rxx rxo rxp rxd rxk; do
+  ln -sf rx "$HOME/.local/bin/$name"
+done
+export PATH="$HOME/.local/bin:$PATH"
+rx --version
+rx-agent --version
+```
+
+Replace `/path/to/extracted/` with each extraction directory.
+On Windows, extract both executables into a directory on PATH and use
+`rx rx-agent` in place of the `rxa` shortcut.
+An rx-agent binary on PATH bypasses managed agent updates.
+Replace that binary with a newer release to update it.
+
+To build from source instead, install Rust, [Bun](https://bun.sh), and pnpm:
 
 ```bash
 git clone https://github.com/samzong/Rx.git
 cd Rx
 make install
 ```
+
+## First run
+
+On a fresh installation without provider setup, `rxa` exits 1 with
+`no model selected`. Configure a provider before starting a session.
+For OpenRouter, set `OPENROUTER_API_KEY` in your shell environment, then run:
+
+```bash
+rxa
+```
+
+With no provider selection, Rx selects OpenRouter when this variable is set.
+Rx supplies the provider's model catalog and a default model to rx-agent.
+To select a model explicitly, use `rxa --model openrouter/<model-id>`.
+
+To store an API key and select another provider, run `rx providers login`
+in a terminal, choose the provider, and enter its key. Then run `rxa`.
+The launcher's credentials and `rx-agent login` credentials use separate stores.
+
+Before connecting Lody, make sure that `rxa` opens a terminal session.
+In Lody, configure the custom agent to run `rx rx-agent acp` with the same
+PATH and provider environment. ACP launches cannot prompt to install rx-agent.
+With the prebuilt installation above, both binaries are already on PATH.
 
 ## Usage
 

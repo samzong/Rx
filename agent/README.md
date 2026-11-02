@@ -16,7 +16,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | Provider login: OAuth flows, device code, key prompts | `pi-ai` | `src/login.ts` | No. pi-ai runs the login. Rx owns the credential store and the terminal interaction. |
 | Tool argument validation | `pi-ai` | `src/hooks.ts` | No. |
 | Skill metadata and prompt catalog text | `pi-coding-agent` | `src/skills.ts` | No plan. Rx uses 4 functions from this package, so removing it is the smallest dependency change. No decision yet. |
-| Token estimate and summary request | `pi-coding-agent` | `src/context.ts` | Same package and plan as the row above. |
+| Token estimate and summary request | `pi-coding-agent` | `src/context-messages.ts`, `src/context.ts` | Same package and plan as the row above. |
 | MCP client: stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
 | Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
 | Historical content by original ordinal: `recall_log`, current session only | Rx | `src/session-history.ts` | Not applicable. |
@@ -34,7 +34,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | Fast service tier injection | Rx | `src/acp-fast.ts` | Not applicable. |
 | Sandbox for tool execution | Not built | Tools run with your permissions (RX-PERM-001) | `ROADMAP.md`, after phase 1. |
 | Eval set and runner | Not built | No score exists for a change in behavior | `ROADMAP.md`, phase 1 B. |
-| rx-agent through ACP in Lody | Not built | The ACP server ships | `ROADMAP.md`, phase 1 A. |
+| rx-agent through ACP in Lody | Rx | `src/acp.ts`, `src/acp-config.ts`, `src/acp-fast.ts`, `src/acp-usage.ts` | In use in Lody. `ROADMAP.md`, phase 1 A. |
 | Cross-session memory | Not built | A session loads one log at a time | `ROADMAP.md`, after phase 1. |
 | Idempotency keys for external actions | Not built | A retried `git push` can run twice | `ROADMAP.md`, after phase 1. |
 | Plan mode, subagents, todo list, web search, LSP diagnostics | Not built, not scheduled | No tool or mode exists for these | None. |
