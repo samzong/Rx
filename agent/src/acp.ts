@@ -2,28 +2,31 @@ import { realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk/unstable";
-import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import { getSupportedThinkingLevels, type AssistantMessage, type Models } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
 import { createRxAgent, systemPrompt } from "./agent.ts";
 import { formatModel, type ModelChoice } from "./models.ts";
 import { configurationSnapshot, changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import type { AcpSelection } from "./acp-state.ts";
-import { latestUsageUpdate, usageUpdate } from "./acp-usage.ts";
-import { SESSION_USAGE_METHOD, SessionUsage } from "./acp-session-usage.ts";
+import { latestUsageUpdate } from "./acp-usage.ts";
+import { SessionUsage } from "./acp-session-usage.ts";
 import { listSessions, readSessionHeader, SessionLog, unlockSession, type Origin } from "./session-log.ts";
-import { hasKnownModelCost } from "./rx-provider.ts";
 import { VERSION } from "./version.ts";
-import { connectMcp, type McpConnection } from "./mcp.ts";
+import { connectMcp } from "./mcp.ts";
 import { loadHooks } from "./hook-config.ts";
 import { hookControl } from "./hooks.ts";
-import { compactionUpdate, eventUpdates, historyUpdates, promptInput, retryUpdate, toolInputUpdate } from "./acp-messages.ts";
+import type { SkillCommand } from "./skills.ts";
+import { historyUpdates } from "./acp-messages.ts";
 export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl } from "./context-control.ts";
-import { expandSkillCommand, type SkillCommand } from "./skills.ts";
-import { isProviderFailure, retryControl } from "./retry.ts";
-import { forkTurnId, initialSessionConfig, LODY_CAPABILITIES, lodyMeta, object, SESSION_CAPABILITIES, sessionSteering, steerRequest, turnUpdate, worktreeProject } from "./acp-lody.ts";
+import { forkTurnId, initialSessionConfig, LODY_CAPABILITIES, lodyMeta, object, SESSION_CAPABILITIES, sessionSteering, steerRequest, worktreeProject } from "./acp-lody.ts";
+import { LODY_EXTENSION_METHODS, type LodySessionMeta, type RateLimitsSnapshot } from "acp-extension-core";
+import { sessionActivityStream } from "./acp-activity.ts";
+import { codexRateLimits, codexSubscription } from "./acp-rate-limits.ts";
+import { z } from "zod";
 import type { SessionTurn } from "./session-turns.ts";
+import { promptSession, type LiveSession } from "./acp-prompt.ts";
 import { askUserTool } from "./acp-elicitation.ts";
 
 export interface AcpOptions {
@@ -32,20 +35,6 @@ export interface AcpOptions {
   choose: () => Promise<ModelChoice>;
 }
 
-interface LiveSession {
-  agent: Agent;
-  log: SessionLog;
-  running: boolean;
-  manual: boolean;
-  cancelled: boolean;
-  configuring: boolean;
-  selection: AcpSelection;
-  mcp: McpConnection;
-  commands: SkillCommand[];
-  steering: ReturnType<typeof sessionSteering>;
-  usage: SessionUsage;
-  reportUsage?: (message: AssistantMessage) => void;
-}
 
 type Update = acp.SessionUpdate;
 
@@ -56,29 +45,13 @@ function availableCommands(skills: readonly SkillCommand[]): Update {
   };
 }
 
-function stopReason(messages: AgentMessage[], cancelled: boolean): acp.StopReason {
-  if (cancelled) return "cancelled";
-  const last = messages.findLast((m) => m.role === "assistant");
-  if (last?.role !== "assistant") return "end_turn";
-  if (last.stopReason === "aborted") return "cancelled";
-  if (last.stopReason === "length") return "max_tokens";
-  if (last.stopReason === "error") {
-    if (!isProviderFailure(last)) throw acp.RequestError.internalError(undefined, last.errorMessage);
-    const detail = last.errorMessage ?? "The model request failed";
-    const hint = /\b401\b|\b403\b|api.?key|unauthori[sz]ed|authentication/i.test(detail)
-      ? " Check the provider credential and try again."
-      : /quota|billing|balance|budget|usage.?limit/i.test(detail) ? " Check the provider balance or account limit before trying again." : "";
-    const separator = hint && !/[.!?]$/.test(detail.trimEnd()) ? "." : "";
-    throw new acp.RequestError(-32010, `Model provider request failed: ${detail}${separator}${hint}`, { type: "provider_error" });
-  }
-  return "end_turn";
-}
 
 export function createAcpApp(options: AcpOptions, sessions = new Map<string, LiveSession>()): acp.AgentApp {
   let booleanSupported = false;
   let compactionSupported = false;
   let elicitationSupported = false;
   let answerNotes = false;
+  let rateLimits: RateLimitsSnapshot | undefined;
   const opening = new Set<string>();
 
   const snapshot = (selection: AcpSelection) => configurationSnapshot(options.models, selection, booleanSupported);
@@ -115,8 +88,13 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       const { log, messages, history = messages, usageMessages = messages, origins, inputs, turns } = start();
       openedLog = log;
       log.recordOriginProject(originProjectPath);
-      const tools = [...mcp.tools, ...(elicitationSupported ? [askUserTool(log.id, client, answerNotes)] : [])];
-      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools, hooks, onUsage: (message) => live.reportUsage?.(message) });
+      const tools = [...mcp.tools, ...(elicitationSupported ? [askUserTool(log.id, client, answerNotes, async (waiting) => { await live.reportActivity?.(waiting ? "requires_action" : "running"); })] : [])];
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools, hooks, onUsage: (message) => live.reportUsage?.(message), onResponse: async (response, model) => {
+        const limits = codexRateLimits(response, model);
+        if (!limits) return;
+        rateLimits = limits;
+        await live.reportRateLimits?.(limits);
+      } });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), usage: new SessionUsage(), running: false, manual: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);
@@ -249,90 +227,22 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
         cwd: s.cwd,
         title: s.title,
         updatedAt: s.updatedAt,
-        ...(s.originProjectPath ? { _meta: lodyMeta({ worktreeProject: { version: 1, originProjectPath: s.originProjectPath } }) } : {}),
+        ...(s.originProjectPath ? { _meta: lodyMeta({ worktreeProject: { version: 1, originProjectPath: s.originProjectPath } } satisfies LodySessionMeta) } : {}),
       })),
     }))
-    .onRequest("_lody/session/steer", steerRequest, ({ params, client }) => {
+    .onRequest(LODY_EXTENSION_METHODS.sessionSteer, steerRequest, ({ params, client }) => {
       const live = sessions.get(params.sessionId);
       if (!live?.running || live.manual || live.cancelled) throw acp.RequestError.invalidRequest(undefined, "session has no running prompt");
       return live.steering.inject(params, client);
     })
-    .onRequest(acp.methods.agent.session.prompt, async ({ params, client, signal }) => {
-      const live = get(params.sessionId);
-      if (live.running || live.configuring) throw acp.RequestError.invalidRequest(undefined, "session is already running a prompt or changing configuration");
-      const { text, images } = promptInput(params.prompt);
-      if (images.length && !live.selection.model.input.includes("image")) throw acp.RequestError.invalidParams(undefined, `model ${formatModel(live.selection.model)} does not support image input`);
-      const control = contextControl(live.agent);
-      const manual = params.prompt.every((block) => block.type === "text") && text.trim() === "/compact";
-      let pending = Promise.resolve();
-      const abort = () => {
-        live.steering.clear();
-        live.agent.abort();
-        control.abort();
-      };
-      const notify = (update: Update) => {
-        pending = pending
-          .then(() => client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update }))
-          .catch(abort);
-      };
-      live.reportUsage = (message) => {
-        const update = live.usage.record(params.sessionId, message, hasKnownModelCost(live.agent.state.model));
-        if (update) pending = pending.then(() => client.notify(SESSION_USAGE_METHOD, update)).catch(abort);
-      };
-      const unsubscribe = live.agent.subscribe((event) => {
-        const updates = eventUpdates(live.log.cwd, event);
-        if (event.type === "message_end" && event.message.role === "assistant") {
-          const usage = usageUpdate(event.message, live.selection.model);
-          if (usage) updates.push(usage);
-        }
-        for (const update of updates) notify(update);
-        return pending;
-      });
-      const unsubscribeRetry = retryControl(live.agent).subscribe((event) => notify(retryUpdate(event)));
-      const unsubscribeCompaction = control.subscribe((event) => notify(compactionUpdate(event, compactionSupported, live.cancelled)));
-      const unsubscribeHooks = hookControl(live.agent)?.subscribe((notice) => notify("text" in notice
-        ? { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${notice.text}\n` } }
-        : toolInputUpdate(live.log.cwd, notice.toolCallId, notice.toolName, notice.input)));
-      const onClose = () => {
-        live.cancelled = true;
-        abort();
-      };
-      live.manual = manual;
-      live.running = true;
-      live.cancelled = false;
-      signal.addEventListener("abort", onClose, { once: true });
-      if (signal.aborted) onClose();
-      try {
-        if (!live.cancelled) {
-          await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: turnUpdate(live.log.beginTurn()) });
-          if (live.mcp.warnings.length) {
-            await client.notify(acp.methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${live.mcp.warnings.join("\n")}\n` } } });
-            live.mcp.warnings.length = 0;
-          }
-          if (!live.cancelled) {
-            if (manual) await control.compact();
-            else await live.agent.prompt(expandSkillCommand(text, live.commands), images);
-          }
-        }
-      } catch (error) {
-        if (!live.cancelled) throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
-      } finally {
-        try {
-          await Promise.all([live.agent.waitForIdle(), control.waitForIdle()]);
-          unsubscribe();
-          unsubscribeCompaction();
-          unsubscribeRetry();
-          unsubscribeHooks?.();
-          live.reportUsage = undefined;
-          await pending;
-        } finally {
-          signal.removeEventListener("abort", onClose);
-          live.running = false;
-          live.steering.clear();
-        }
-      }
-      return { stopReason: (manual || hookControl(live.agent)?.rejected) ? (live.cancelled ? "cancelled" : "end_turn") : stopReason(live.agent.state.messages, live.cancelled) };
+    .onRequest(LODY_EXTENSION_METHODS.rateLimitsGet, z.object({ sessionId: z.string().optional(), accountId: z.string().optional(), modelId: z.string().optional() }), ({ params }) => {
+      if (params.accountId) return { rateLimits: [] };
+      const live = params.sessionId ? sessions.get(params.sessionId) : undefined;
+      const supported = live && codexSubscription(live.selection.model)
+        && (!params.modelId || params.modelId === live.selection.model.id || params.modelId === formatModel(live.selection.model));
+      return supported && rateLimits ? rateLimits : { rateLimits: [] };
     })
+    .onRequest(acp.methods.agent.session.prompt, ({ params, client, signal }) => promptSession(get(params.sessionId), params, client, signal, compactionSupported))
     .onNotification(acp.methods.agent.session.cancel, ({ params }) => {
       const live = sessions.get(params.sessionId);
       if (!live?.running) return;
@@ -347,7 +257,7 @@ export function serveAcp(options: AcpOptions): { closed: Promise<void>; stop: ()
   const output = Writable.toWeb(process.stdout) as WritableStream<Uint8Array>;
   const input = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
   const sessions = new Map<string, LiveSession>();
-  const connection = createAcpApp(options, sessions).connect(acp.ndJsonStream(output, input));
+  const connection = createAcpApp(options, sessions).connect(sessionActivityStream(acp.ndJsonStream(output, input)));
   const closed = connection.closed.then(async () => {
     await Promise.all([...sessions.values()].map(async (live) => {
       const control = contextControl(live.agent);

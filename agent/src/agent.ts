@@ -1,5 +1,5 @@
 import { Agent, type AgentMessage, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type Api, type AssistantMessage, type Model, type Models } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, type Model, type Models, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { fastStreamOptions } from "./acp-fast.ts";
 import { installContextControl } from "./context.ts";
 import { loadInstructions, projectDirectories } from "./instructions.ts";
@@ -49,6 +49,7 @@ export interface RxAgentOptions {
   tools?: AgentTool[];
   hooks?: HookConfiguration;
   onUsage?: (message: AssistantMessage) => void;
+  onResponse?: SimpleStreamOptions["onResponse"];
 }
 
 const ROLE_ORIGIN: Record<string, Origin | undefined> = { assistant: "model", toolResult: "tool", system: "rx" };
@@ -58,7 +59,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
   const agent = new Agent({
     streamFn: (model, context, streamOptions) => retryStream(
       model, context, streamOptions,
-      (selected, input, requestOptions) => options.models.streamSimple(selected, input, transport.streamOptions(selected.api, fastStreamOptions(selected, requestOptions, options.fast?.() === true))),
+      (selected, input, requestOptions) => options.models.streamSimple(selected, input, transport.streamOptions(selected.api, fastStreamOptions(selected, { ...requestOptions, onResponse: options.onResponse }, options.fast?.() === true))),
       transport.takeFailure,
       (message) => { options.log.append("model", message); agent.state.messages.push(message); options.onUsage?.(message); },
       (event) => retryControl(agent).emit(event),
@@ -77,7 +78,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
     options.log.append(isHookContext(event.message) ? "rx" : ROLE_ORIGIN[event.message.role] ?? options.origin, event.message);
     if (event.message.role === "assistant") options.onUsage?.(event.message);
   });
-  installContextControl(agent, options.models, options.log, options.onUsage);
+  installContextControl(agent, options.models, options.log, options.onUsage, options.onResponse);
   if (options.hooks) installHooks(agent, options.log, options.hooks);
   if (options.origin === "cli") {
     const prompt = agent.prompt.bind(agent);

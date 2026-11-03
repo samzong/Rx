@@ -1,3 +1,4 @@
+import type { LodyElicitationMeta } from "acp-extension-core";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "typebox";
@@ -18,7 +19,7 @@ const parameters = Type.Object({ questions: Type.Array(question, { minItems: 1, 
 type Questions = Static<typeof parameters>["questions"];
 type Answers = { answers: Record<string, string | string[]>; notes?: Record<string, string> } | { cancelled: true };
 
-function elicitationMeta(fields: Record<string, unknown>) {
+function elicitationMeta(fields: Omit<LodyElicitationMeta, "version">) {
   return { _meta: lodyMeta({ elicitation: { version: 1, ...fields } }) };
 }
 
@@ -76,7 +77,7 @@ function answers(response: acp.CreateElicitationResponse, questions: Questions, 
   return { answers: Object.fromEntries(result), ...(notes.length ? { notes: Object.fromEntries(notes) } : {}) };
 }
 
-export function askUserTool(sessionId: string, client: acp.AgentContext, answerNotes: boolean): AgentTool<typeof parameters, Answers> {
+export function askUserTool(sessionId: string, client: acp.AgentContext, answerNotes: boolean, waiting?: (active: boolean) => Promise<void>): AgentTool<typeof parameters, Answers> {
   return {
     name: "ask_user",
     label: "Ask user",
@@ -93,6 +94,8 @@ export function askUserTool(sessionId: string, client: acp.AgentContext, answerN
         if (signal?.aborted) onAbort();
       });
       try {
+        await waiting?.(true);
+        signal?.throwIfAborted();
         const response = await Promise.race([
           client.request(acp.methods.client.elicitation.create, request, { cancellationSignal: signal }),
           aborted,
@@ -102,6 +105,7 @@ export function askUserTool(sessionId: string, client: acp.AgentContext, answerN
         return { content: [{ type: "text", text: JSON.stringify(details) }], details };
       } finally {
         if (onAbort) signal?.removeEventListener("abort", onAbort);
+        if (!signal?.aborted) await waiting?.(false);
       }
     },
   };

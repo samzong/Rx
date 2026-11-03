@@ -13,7 +13,7 @@
   },
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && node scripts/check-syntax.ts",
     "test": "node --test 'test/**/*.test.ts' 'evals/**/*.test.ts'"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-mcp": "1.4.0",
     "@earendil-works/pi-tui": "1.4.0",
+    "acp-extension-core": "0.3.0",
     "typebox": "1.4.3",
     "zod": "4.6.7"
   },

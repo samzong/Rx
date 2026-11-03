@@ -1,25 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { lodyMeta } from "./acp-lody.ts";
+import { LODY_EXTENSION_METHODS, type ModelUsage, type SessionUsageUpdate as CoreSessionUsageUpdate, type SessionUsageScopeMeta } from "acp-extension-core";
 
-export const SESSION_USAGE_METHOD = "_lody/session/usage_update";
-
-export interface ModelUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadInputTokens: number;
-  cacheCreationInputTokens?: number;
-  reasoningOutputTokens?: number;
-  costUSD?: number;
-}
-
-export interface SessionUsageUpdate {
-  sessionId: string;
-  usage: ModelUsage;
-  modelUsage: Record<string, ModelUsage>;
-  delta: { usage: ModelUsage; modelUsage: Record<string, ModelUsage> };
-  _meta: ReturnType<typeof lodyMeta<{ usageScopeId: string }>>;
-}
+export type { ModelUsage } from "acp-extension-core";
+export const SESSION_USAGE_METHOD = LODY_EXTENSION_METHODS.sessionUsageUpdate;
+export type SessionUsageUpdate = CoreSessionUsageUpdate & Required<Pick<CoreSessionUsageUpdate, "modelUsage" | "delta">> & { _meta: ReturnType<typeof lodyMeta<SessionUsageScopeMeta>> };
 
 const counters = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "reasoningOutputTokens"] as const;
 
