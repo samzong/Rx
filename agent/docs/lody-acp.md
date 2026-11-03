@@ -252,27 +252,30 @@ Cancel another turn and answer an `ask_user` question. Each completed turn must 
 
 ## Subscription rate limits
 
-Rx advertises `rateLimits: {version: 1}` for push only. Core 0.3.0 permits `query:true` or omission, not `query:false`.
-pi-ai 1.4.0 `onResponse` supplies headers for working and context-summary requests.
+Rx advertises `rateLimits: {version: 1}` for push only.
+For working and summary requests, pi-ai 1.4.0 `onProviderStreamEvent` supplies `codex.rate_limits` events over WebSocket or SSE.
+`onResponse` also supplies SSE headers. Rx preserves pi-ai's default WebSocket-first transport and cached-context continuation.
 Only `openai-codex` with API `openai-codex-responses` at `https://chatgpt.com/backend-api` supplies quota.
 Other providers, including Tokener, emit no quota push and return `{rateLimits: []}` to queries.
 
-The parser follows [Codex 0.164.0](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/codex-api/src/rate_limits.rs#L22-L101).
-For primary and secondary header families, `used-percent` is consumed percentage, `window-minutes` is rolling duration, and `reset-at` is Unix seconds.
-Rx converts minutes to seconds and retains named families and equal-duration windows.
-Invalid percentages omit the window. Missing duration or reset time stays null. Wallet, plan, account, and model limits are not inferred.
+The parsers follow [Codex 0.164.0 headers and events](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/codex-api/src/rate_limits.rs#L22-L178).
+Events read top-level `rate_limits.primary` and `secondary`, ignoring `additional_rate_limits`.
+Their `used_percent`, `window_minutes`, and `reset_at` match header percentage, rolling minutes, and Unix seconds.
+Event limit IDs use normalized `metered_limit_name`, then `limit_name`, else `codex`.
+Both paths convert minutes to seconds. Invalid percentages omit windows; missing duration or reset time stays null.
+Wallet, plan, account, and model limits are not inferred.
 
-Each valid HTTP observation pushes `_lody/rate_limits/update` with its timestamp, including error responses.
-The latest observation stays in memory. The retained query handler returns it only for a known session with a matching subscription selection.
-Missing or unknown session IDs and unmatched filters return an empty result. Queries preserve observation time and make no network request.
+Each valid observation pushes `_lody/rate_limits/update` with its timestamp and stays in memory.
+The retained query handler returns it only for a known session with a matching subscription selection.
+Missing or unknown session IDs and unmatched filters return empty data. Queries preserve observation time without network requests.
 
-In Lody a3510eab, quota queries initialize a separate process without a session, which cannot read this cache.
-Rx therefore omits `query`; Lody skips refresh subprocesses but still accepts push and publishes quota for display.
-Quota enters Lody through active-turn pushes only. Lody expires automation capacity observations after five minutes.
-Active querying, such as Codex reading the ChatGPT usage endpoint, remains future work.
+Lody a3510eab queries initialize a separate process without a session, which cannot read this cache.
+Omitting `query` skips those refresh subprocesses without blocking push or quota display.
+Quota enters through active-turn pushes. Lody expires automation capacity observations after five minutes.
+Active querying of the ChatGPT usage endpoint remains future work.
 
-For acceptance, complete a ChatGPT subscription prompt and inspect Lody's quota display. Expect windows matching the response headers.
-Repeat with Tokener and expect no quota windows. A fresh process has no observation until a response supplies headers.
+For acceptance, complete a ChatGPT subscription prompt and inspect Lody's quota display. Expect windows matching the provider observation.
+Repeat with Tokener and expect no quota windows. A fresh process has no observation until a response supplies quota.
 
 ## Other limits
 

@@ -23,7 +23,7 @@ import { contextControl } from "./context-control.ts";
 import { forkTurnId, initialSessionConfig, LODY_CAPABILITIES, lodyMeta, object, SESSION_CAPABILITIES, sessionSteering, steerRequest, worktreeProject } from "./acp-lody.ts";
 import { LODY_EXTENSION_METHODS, type LodySessionMeta, type RateLimitsSnapshot } from "acp-extension-core";
 import { sessionActivityStream } from "./acp-activity.ts";
-import { codexRateLimits, codexSubscription } from "./acp-rate-limits.ts";
+import { codexRateLimitEvent, codexRateLimits, codexSubscription } from "./acp-rate-limits.ts";
 import { z } from "zod";
 import type { SessionTurn } from "./session-turns.ts";
 import { promptSession, type LiveSession } from "./acp-prompt.ts";
@@ -89,12 +89,15 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       openedLog = log;
       log.recordOriginProject(originProjectPath);
       const tools = [...mcp.tools, ...(elicitationSupported ? [askUserTool(log.id, client, answerNotes, async (waiting) => { await live.reportActivity?.(waiting ? "requires_action" : "running"); })] : [])];
-      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools, hooks, onUsage: (message) => live.reportUsage?.(message), onResponse: async (response, model) => {
-        const limits = codexRateLimits(response, model);
+      const reportRateLimits = async (limits: RateLimitsSnapshot | undefined) => {
         if (!limits) return;
         rateLimits = limits;
         await live.reportRateLimits?.(limits);
-      } });
+      };
+      const agent = createRxAgent({ ...selection, models: options.models, cwd: log.cwd, systemPrompt: prompt.prompt, log, origin: "acp", messages, fast: () => live.selection.fast, tools, hooks, onUsage: (message) => live.reportUsage?.(message),
+        onResponse: (response, model) => reportRateLimits(codexRateLimits(response, model)),
+        onProviderStreamEvent: (event, model) => reportRateLimits(codexRateLimitEvent(event, model)),
+      });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), usage: new SessionUsage(), running: false, manual: false, cancelled: false, configuring: false };
       sessions.set(log.id, live);

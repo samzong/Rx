@@ -6,6 +6,31 @@ export function codexSubscription(model: Model<Api>): boolean {
     && model.baseUrl.replace(/\/$/, "") === "https://chatgpt.com/backend-api";
 }
 
+function rateLimitWindow(usedPercent: unknown, minutes: unknown, resetAt: unknown): RateLimitWindow | undefined {
+  if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) return;
+  const duration = typeof minutes === "number" && Number.isSafeInteger(minutes) && minutes > 0 && Number.isSafeInteger(minutes * 60) ? minutes * 60 : null;
+  const resetsAtEpochSeconds = typeof resetAt === "number" && Number.isSafeInteger(resetAt) && resetAt >= 0 ? resetAt : null;
+  return { usedPercent, windowDurationSeconds: duration, resetsAtEpochSeconds };
+}
+
+export function codexRateLimitEvent(data: unknown, model: Model<Api>, now = Date.now()): RateLimitsSnapshot | undefined {
+  if (!codexSubscription(model) || typeof data !== "object" || data === null) return;
+  const event = data as Record<string, unknown>;
+  if (event.type !== "codex.rate_limits" || typeof event.rate_limits !== "object" || event.rate_limits === null) return;
+  const details = event.rate_limits as Record<string, unknown>;
+  const windows = ["primary", "secondary"].flatMap((kind) => {
+    const value = details[kind];
+    if (typeof value !== "object" || value === null) return [];
+    const window = value as Record<string, unknown>;
+    const parsed = rateLimitWindow(window.used_percent, window.window_minutes, window.reset_at);
+    return parsed ? [parsed] : [];
+  });
+  if (!windows.length) return;
+  const name = typeof event.metered_limit_name === "string" ? event.metered_limit_name : typeof event.limit_name === "string" ? event.limit_name : "codex";
+  const limitId = name.trim().toLowerCase().replaceAll("-", "_");
+  return { rateLimits: [{ limitId, scope: { providerId: model.provider }, windows }], fetchedAtEpochSeconds: Math.floor(now / 1000) };
+}
+
 export function codexRateLimits(response: ProviderResponse, model: Model<Api>, now = Date.now()): RateLimitsSnapshot | undefined {
   if (!codexSubscription(model)) return;
   const headers = new Headers(response.headers);
@@ -26,11 +51,8 @@ export function codexRateLimits(response: ProviderResponse, model: Model<Api>, n
     const label = headers.get(`x-${prefix}-limit-name`)?.trim();
     for (const kind of ["primary", "secondary"]) {
       const name = `x-${prefix}-${kind}`;
-      const usedPercent = number(`${name}-used-percent`);
-      if (usedPercent === null || usedPercent > 100) continue;
-      const minutes = number(`${name}-window-minutes`, true);
-      const duration = minutes === null || minutes === 0 || !Number.isSafeInteger(minutes * 60) ? null : minutes * 60;
-      windows.push({ ...(label ? { label } : {}), usedPercent, windowDurationSeconds: duration, resetsAtEpochSeconds: number(`${name}-reset-at`, true) });
+      const parsed = rateLimitWindow(number(`${name}-used-percent`), number(`${name}-window-minutes`, true), number(`${name}-reset-at`, true));
+      if (parsed) windows.push({ ...(label ? { label } : {}), ...parsed });
     }
     if (windows.length) rateLimits.push({ limitId: prefix.replaceAll("-", "_"), scope: { providerId: model.provider }, ...(label ? { limitName: label } : {}), windows });
   }

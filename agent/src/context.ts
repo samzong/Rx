@@ -34,7 +34,7 @@ export function isContextOverflow(message: AssistantMessage): boolean {
   return message.stopReason === "error" && /\bcontext_length_exceeded\b|\bcontext_window_exceeded\b|\bprompt is too long\b|\binput length exceeds (?:the )?(?:maximum|max)\b/i.test(message.errorMessage ?? "");
 }
 
-export function installContextControl(agent: Agent, models: Models, log: SessionLog, onUsage?: (message: AssistantMessage) => void, onResponse?: SimpleStreamOptions["onResponse"]): void {
+export function installContextControl(agent: Agent, models: Models, log: SessionLog, onUsage?: (message: AssistantMessage) => void, onResponse?: SimpleStreamOptions["onResponse"], onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"]): void {
   const listeners = new Set<(event: CompactionEvent) => void>();
   const transport = transportDiagnostics();
   let summaryAbort: AbortController | undefined;
@@ -88,7 +88,7 @@ export function installContextControl(agent: Agent, models: Models, log: Session
                 if (clampMaxTokensToContext(selected, context, budget.summary) < budget.summary) throw new Error("The summary request exceeds the model context budget");
                 const outputAbort = new AbortController();
                 const requestSignal = AbortSignal.any([summarySignal, outputAbort.signal]);
-                const requestOptions = transport.streamOptions(selected.api, { ...options, onResponse, signal: requestSignal, reasoning: undefined, maxTokens: budget.summary, maxRetries: 0 });
+                const requestOptions = transport.streamOptions(selected.api, { ...options, onResponse, onProviderStreamEvent, signal: requestSignal, reasoning: undefined, maxTokens: budget.summary, maxRetries: 0 });
                 const response = await models.streamSimple(selected, context, requestOptions);
                 let exceeded = false;
                 let attemptedTool = false;
