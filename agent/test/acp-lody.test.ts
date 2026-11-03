@@ -135,3 +135,44 @@ test("startup configuration precedes the snapshot and logical project metadata s
     await assert.rejects(ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: { lody: { sessionConfig: { version: 1, configOptionValues: { thinking: "invalid" } } } } }), { code: -32602 });
   });
 });
+
+test("saved unsupported thinking levels recover on new and load while explicit changes stay strict", async () => {
+  const faux = fauxProvider({ models: [
+    { id: "astra", name: "Astra", reasoning: true, contextWindow: 8192 },
+    { id: "luna", name: "Luna", reasoning: true, contextWindow: 8192 },
+  ] });
+  const model = faux.getModel("astra")!;
+  const luna = faux.getModel("luna")!;
+  luna.thinkingLevelMap = { off: "none", minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+  model.thinkingLevelMap = { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: null };
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const cwd = tempDir();
+  const updates: acp.SessionUpdate[] = [];
+  const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model, thinking: "high" }) });
+  const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
+  await client.connectWith(app, async (ctx) => {
+    const meta = (thinking: unknown, selected = model) => ({ lody: { sessionConfig: { version: 1, modelId: `${selected.provider}/${selected.id}`, configOptionValues: { thinking } } } });
+    const current = (value: { configOptions?: acp.SessionConfigOption[] | null }) => value.configOptions?.find((option) => option.id === "thinking")?.currentValue;
+    for (const [selected, thinking, expected] of [[model, "off", "low"], [model, "max", "xhigh"], [luna, "minimal", "low"]] as const) {
+      const created = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: meta(thinking, selected) });
+      assert.equal(current(created), expected);
+      const loaded = await ctx.request(acp.methods.agent.session.load, { sessionId: created.sessionId, cwd, mcpServers: [], _meta: meta(thinking, selected) });
+      assert.equal(current(loaded), expected);
+      await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId: created.sessionId, configId: "thinking", value: thinking }), { code: -32602 });
+      faux.setResponses([(_context, options) => {
+        assert.equal(options?.reasoning, expected);
+        return fauxAssistantMessage("recovered");
+      }]);
+      assert.equal((await ctx.request(acp.methods.agent.session.prompt, { sessionId: created.sessionId, prompt: [{ type: "text", text: "go" }] })).stopReason, "end_turn");
+    }
+    const changes = updates.filter((update) => update.sessionUpdate === "config_option_update");
+    assert.deepEqual(changes.map(current), ["low", "low", "xhigh", "xhigh", "low", "low"]);
+    const supported = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: meta("high") });
+    assert.equal(current(supported), "high");
+    assert.equal(updates.filter((update) => update.sessionUpdate === "config_option_update").length, 6);
+    for (const thinking of ["unknown", false]) {
+      await assert.rejects(ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: meta(thinking) }), { code: -32602 });
+    }
+  });
+});

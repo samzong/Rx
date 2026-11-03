@@ -2,13 +2,14 @@ import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Models } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import { LODY_EXTENSION_METHODS, type LodyExtensionCapabilities, type LodySessionMeta, type LodySteerRequest, type LodySteerResponse } from "acp-extension-core";
 import { changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import { promptInput } from "./acp-messages.ts";
 import type { AcpSelection } from "./acp-state.ts";
+import { THINKING_LEVELS } from "./models.ts";
 
 export const LODY_CAPABILITIES = {
   steering: { version: 1, transport: "request", upstreamTurn: "same", configPolicy: "active" },
@@ -39,20 +40,29 @@ export function worktreeProject(meta: unknown): string | undefined {
   return project.originProjectPath;
 }
 
-export async function initialSessionConfig(models: Models, selection: AcpSelection, meta: unknown, booleanSupported: boolean): Promise<AcpSelection> {
+export async function initialSessionConfig(models: Models, selection: AcpSelection, meta: unknown, booleanSupported: boolean) {
+  const supported = getSupportedThinkingLevels(selection.model);
+  if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
+  if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
+  let normalizedThinking = false;
   const config = object(object(object(meta)?.lody)?.sessionConfig);
-  if (config?.version !== 1) return selection;
+  if (config?.version !== 1) return { selection, normalizedThinking };
   const values = object(config.configOptionValues) ?? {};
   const model = typeof config.modelId === "string" && config.modelId ? config.modelId : values.model;
   if (typeof model === "string") selection = await changeSessionConfig(models, selection, supportsFast, "model", model);
   for (const id of ["thinking", "fast"]) {
-    const value = values[id];
+    let value = values[id];
     if (value === undefined) continue;
+    const thinking = THINKING_LEVELS.find((level) => level === value);
+    if (id === "thinking" && thinking !== undefined) {
+      value = clampThinkingLevel(selection.model, thinking);
+      normalizedThinking = value !== thinking;
+    }
     if (id === "fast" && !booleanSupported) throw acp.RequestError.invalidParams(undefined, "client does not support boolean configuration options");
     if (id === "fast" && value === false && !supportsFast(selection.model)) continue;
     selection = await changeSessionConfig(models, selection, supportsFast, id, value as string | boolean);
   }
-  return selection;
+  return { selection, normalizedThinking };
 }
 
 export function sessionSteering(agent: Agent) {

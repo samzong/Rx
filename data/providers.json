@@ -15,6 +15,49 @@
       "env": "TOKENER_API_KEY",
       "dsh_protocol": "openai-responses",
       "model_capabilities": {
+        "gpt-6-luna": {
+          "openai-responses": {
+            "reasoning": {
+              "kind": "effort",
+              "levels": {
+                "off": "none",
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh",
+                "max": "max"
+              }
+            }
+          }
+        },
+        "gpt-6-sol": {
+          "openai-responses": {
+            "reasoning": {
+              "kind": "effort",
+              "levels": {
+                "off": "none",
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh",
+                "max": "max"
+              }
+            }
+          }
+        },
+        "gpt-6-astra": {
+          "openai-responses": {
+            "reasoning": {
+              "kind": "effort",
+              "levels": {
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh"
+              }
+            }
+          }
+        },
         "gpt-5.6-luna": {
           "openai-responses": {
             "reasoning": {
