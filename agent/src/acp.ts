@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { getSupportedThinkingLevels, type Models } from "@earendil-works/pi-ai";
+import type { Models } from "@earendil-works/pi-ai";
 import { createRxAgent, systemPrompt } from "./agent.ts";
 import { formatModel, type ModelChoice } from "./models.ts";
 import { configurationSnapshot, changeSessionConfig } from "./acp-config.ts";
@@ -75,11 +75,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       throw acp.RequestError.internalError(undefined, error instanceof Error ? error.message : String(error));
     }
     const hooks = loadHooks(options.home);
-    let selection: AcpSelection = settings?.selection ? { ...settings.selection } : { ...choice, fast: false };
-    const supported = getSupportedThinkingLevels(selection.model);
-    if (!supported.length) throw acp.RequestError.invalidParams(undefined, "model has no supported thinking levels");
-    if (!supported.includes(selection.thinking)) selection.thinking = supported[0]!;
-    selection = await initialSessionConfig(options.models, selection, settings?.meta, booleanSupported);
+    const { selection, normalizedThinking } = await initialSessionConfig(options.models, { ...choice, fast: settings?.selection?.fast ?? false }, settings?.meta, booleanSupported);
     const configuration = await snapshot(selection);
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     let openedLog: SessionLog | undefined;
@@ -100,6 +96,7 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       });
       await hookControl(agent)?.start(origins ? "resume" : "startup", signal);
       const live: LiveSession = { agent, log, selection, mcp, commands: prompt.commands, steering: sessionSteering(agent), usage: new SessionUsage(), running: false, manual: false, cancelled: false, configuring: false };
+      if (normalizedThinking) await client.notify(acp.methods.client.session.update, { sessionId: log.id, update: { sessionUpdate: "config_option_update", configOptions: configuration.configOptions } });
       sessions.set(log.id, live);
       return { live, history, usageMessages, origins, inputs, turns, configuration };
     } catch (error) {

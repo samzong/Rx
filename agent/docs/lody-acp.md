@@ -47,21 +47,20 @@ The existing RX-CANCEL-001 process and request cancellation rules still apply.
 
 ## Startup configuration
 
-`session/new` and `session/load` accept `_meta.lody.sessionConfig` with
+`session/new` and `session/load` accept `_meta.lody.sessionConfig`:
 `{version:1, modelId?, configOptionValues}`.
-Rx applies model selection before thinking and Fast, before it builds the first snapshot or agent.
-A nonempty string `modelId` wins over `configOptionValues.model`.
-The existing `changeSessionConfig` function owns credential checks, thinking validation, model clamps, and Fast resets.
-Fast also requires the client's boolean configuration capability.
-A saved `fast:false` is ignored when the selected model does not support Fast.
-`fast:true` still requires a supported model.
+Rx applies model, thinking, then Fast before the first snapshot or agent.
+A nonempty string `modelId` overrides `configOptionValues.model`.
+`changeSessionConfig` checks credentials, validates thinking, clamps thinking on model changes, and resets Fast.
+Fast requires boolean client support. Unsupported models ignore saved `fast:false` and reject `fast:true`.
 
-Unknown configuration keys do not affect session creation.
-A malformed `modelId` does not discard valid option values.
-A malformed option map does not discard a valid `modelId`.
-Invalid values for supported options fail with the existing `invalidParams` path.
-Without version 1 startup configuration, Rx uses current launch defaults.
-Startup configuration does not persist model selections in the session log.
+Startup thinking uses the nearest supported level (pi-ai `clampThinkingLevel`) for recognized unsupported levels.
+The response and `config_option_update` report the actual configuration.
+Explicit setters reject unsupported thinking.
+Unknown names, invalid types, and other invalid option values fail with `invalidParams`.
+
+Unknown keys are ignored. A malformed `modelId` or option map does not discard the other's valid values.
+Without version 1, Rx uses launch defaults. Model choices stay out of the session log.
 
 ## Logical project identity
 
