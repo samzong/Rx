@@ -4,6 +4,7 @@ import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Models } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import { LODY_EXTENSION_METHODS, type LodyExtensionCapabilities, type LodySessionMeta, type LodySteerRequest, type LodySteerResponse } from "acp-extension-core";
 import { changeSessionConfig } from "./acp-config.ts";
 import { supportsFast } from "./acp-fast.ts";
 import { promptInput } from "./acp-messages.ts";
@@ -14,13 +15,15 @@ export const LODY_CAPABILITIES = {
   worktreeProject: { version: 1 },
   usage: { version: 1 },
   forkAtTurn: { version: 1 },
-};
+  sessionActivity: { version: 1 },
+  rateLimits: { version: 1 },
+} as const satisfies LodyExtensionCapabilities;
 
 export const steerRequest = z.object({
   sessionId: z.string().min(1),
   steerId: z.string().min(1),
   prompt: z.array(z.custom<acp.ContentBlock>()),
-});
+}) satisfies z.ZodType<LodySteerRequest<acp.ContentBlock>>;
 
 export function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -63,7 +66,7 @@ export function sessionSteering(agent: Agent) {
       if (!context.messages.some((message) => message.role === "user" && message.timestamp === entry.message.timestamp && isDeepStrictEqual(message.content, entry.message.content))) continue;
       pending.delete(steerId);
       try {
-        await entry.client.notify("_lody/session/steer_applied", { sessionId: agent.sessionId, steerId });
+        await entry.client.notify(LODY_EXTENSION_METHODS.sessionSteerApplied, { sessionId: agent.sessionId, steerId });
         entry.resolve({ outcome: "injected" });
       } catch (error) {
         entry.reject(error);
@@ -74,7 +77,7 @@ export function sessionSteering(agent: Agent) {
     return response;
   };
   return {
-    inject(params: z.infer<typeof steerRequest>, client: acp.AgentContext): Promise<{ outcome: "injected" }> {
+    inject(params: z.infer<typeof steerRequest>, client: acp.AgentContext): Promise<LodySteerResponse> {
       if (pending.has(params.steerId)) throw acp.RequestError.invalidRequest(undefined, "steerId is already pending");
       const { text, images } = promptInput(params.prompt);
       if (images.length && !agent.state.model.input.includes("image")) throw acp.RequestError.invalidParams(undefined, "the selected model does not support image input");
@@ -100,7 +103,7 @@ export function lodyMeta<T extends Record<string, unknown>>(value: T) {
   return { lody: value };
 }
 
-const forkSchema = z.object({ version: z.literal(1), turnId: z.string().min(1).optional() });
+const forkSchema = z.object({ version: z.literal(1), turnId: z.string().min(1).optional() }) satisfies z.ZodType<NonNullable<LodySessionMeta["forkAtTurn"]>>;
 
 export function forkTurnId(meta: unknown): string | undefined {
   const lody = object(meta)?.lody;

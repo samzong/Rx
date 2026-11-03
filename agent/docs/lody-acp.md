@@ -1,7 +1,7 @@
 # Lody ACP extensions
 
 This document owns RX-ACP-005 and RX-ACP-006 under the [agent design contract](../DESIGN.md).
-Rx uses ACP SDK 2.0.2 and the Lody extension contract from
+Rx uses ACP SDK 2.0.2 and imports shared types and method names from
 [`acp-extension-core` 0.3.0](https://github.com/LodyAI/acp-extension-core/tree/ea90d0b).
 `src/acp-lody.ts` constructs `agentCapabilities._meta.lody` in one place.
 Rx advertises only these capabilities:
@@ -12,6 +12,8 @@ Rx advertises only these capabilities:
 | Worktree project | `{version:1}` | Keep the logical project separate from the execution directory. |
 | Usage | `{version:1}` | Report cumulative usage per model within an accounting scope. |
 | Fork at turn | `{version:1}` | Copy history through a selected turn without changing its source. |
+| Session activity | `{version:1}` | Report idle, running, or waiting for a user answer, with zero background tasks. |
+| Rate limits | `{version:1}` | Push observed ChatGPT subscription quota windows. Other providers return no windows. |
 
 ## Steering
 
@@ -112,11 +114,15 @@ Summary requests do not update that context measurement.
 Clients must not add standard context measurements to cumulative usage or add `delta` to the same `modelUsage` snapshot twice.
 
 The wire contract follows [acp-extension-core 0.3.0](https://github.com/LodyAI/acp-extension-core/blob/ea90d0b23d4f850c66c0f542f53cbc596ef2c62f/src/usage.ts).
-Rx uses an internal accumulator because that package also requires SDK `^1.4.0` and exposes no separate usage entrypoint.
-The strongest alternative is its `SessionUsageAccumulator`, which merges repeated operation snapshots monotonically.
+Rx imports the core usage types and retains its internal accumulator.
+The strongest alternative is the core `SessionUsageAccumulator`, which merges repeated operation snapshots monotonically.
 Rx receives one completion per request directly from its request owners, so it needs only cumulative model buckets.
-This avoids a second SDK and an operation ledger that grows with every request.
 If a future source repeats or corrects completion snapshots, add operation identity before accounting for that source.
+
+The core package depends on SDK `^1.4.0` and exposes TypeScript source through its `types` field.
+The lockfile includes both SDK versions. The core package imports SDK types only, so the Bun runtime bundle uses SDK 2.0.2 only.
+Core source uses syntax that Node cannot strip. TypeScript checks the complete dependency graph without `erasableSyntaxOnly`.
+The typecheck command also applies Node's `stripTypeScriptTypes` in strip mode to all Rx source, script, test, and eval files.
 
 For Lody acceptance, start an Rx session and complete two prompts.
 Make sure that the session's token statistics increase after the second prompt.
@@ -220,7 +226,58 @@ Start another question and cancel the turn. The session must accept another prom
 Also select Cancel on the card. The model must receive `{cancelled: true}` and continue.
 Lody form cards offer Submit answers and Cancel. They do not expose decline, which the unit tests cover.
 
+## Session activity
+
+Rx advertises `sessionActivity: {version: 1}` and sends `_lody/session/activity_update`.
+Every update contains `version: 1`, `sessionId`, `state`, and `backgroundTaskCount: 0`.
+Rx has no native background tasks that wake the agent. A shell process that a tool leaves behind does not wake the agent.
+
+The stdio transport writes the successful new, load, or fork response before it writes the first idle update.
+This order matters because Lody ignores activity updates until it assigns its ACP session ID.
+SDK 2.0.2 does not expose a handler callback after a response write.
+A timer is a simpler alternative, but it cannot bind the update to that write.
+The transport uses the request ID to pair each successful establishment response with its idle update.
+Failed establishment sends no idle update. Resume remains unsupported.
+
+An accepted prompt sends running before the turn starts, including `/compact`.
+While `ask_user` waits for an elicitation answer, Rx sends requires_action before the request and running after the answer.
+Cancellation skips the return to running. Success, cancellation, provider failure, and compaction failure finish with idle.
+The turn owner drains its ordered output queue before the final idle update and prompt response.
+Rx does not request tool permissions under RX-ACP-001, so there is no permission wait to report.
+
+Lody uses this level to distinguish observed idle from unknown native activity.
+For acceptance, create an automation with a settled condition on an Rx session, then complete a tool-using prompt.
+The automation must trigger after the turn instead of blocking with `native_activity_unobserved`.
+Cancel another turn and answer an `ask_user` question. Each completed turn must settle again.
+
+## Subscription rate limits
+
+Rx advertises `rateLimits: {version: 1}` for push only.
+For working and summary requests, pi-ai 1.4.0 `onProviderStreamEvent` supplies `codex.rate_limits` events over WebSocket or SSE.
+`onResponse` also supplies SSE headers. Rx preserves pi-ai's default WebSocket-first transport and cached-context continuation.
+Only `openai-codex` with API `openai-codex-responses` at `https://chatgpt.com/backend-api` supplies quota.
+Other providers, including Tokener, emit no quota push and return `{rateLimits: []}` to queries.
+
+The parsers follow [Codex 0.164.0 headers and events](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/codex-api/src/rate_limits.rs#L22-L178).
+Events read top-level `rate_limits.primary` and `secondary`, ignoring `additional_rate_limits`.
+Their `used_percent`, `window_minutes`, and `reset_at` match header percentage, rolling minutes, and Unix seconds.
+Event limit IDs use normalized `metered_limit_name`, then `limit_name`, else `codex`.
+Both paths convert minutes to seconds. Invalid percentages omit windows; missing duration or reset time stays null.
+Wallet, plan, account, and model limits are not inferred.
+
+Each valid observation pushes `_lody/rate_limits/update` with its timestamp and stays in memory.
+The retained query handler returns it only for a known session with a matching subscription selection.
+Missing or unknown session IDs and unmatched filters return empty data. Queries preserve observation time without network requests.
+
+Lody a3510eab queries initialize a separate process without a session, which cannot read this cache.
+Omitting `query` skips those refresh subprocesses without blocking push or quota display.
+Quota enters through active-turn pushes. Lody expires automation capacity observations after five minutes.
+Active querying of the ChatGPT usage endpoint remains future work.
+
+For acceptance, complete a ChatGPT subscription prompt and inspect Lody's quota display. Expect windows matching the provider observation.
+Repeat with Tokener and expect no quota windows. A fresh process has no observation until a response supplies quota.
+
 ## Other limits
 
 Rx does not advertise permission modes or permission requests under RX-ACP-001.
-Subagents, goals, prompt suggestions, rate limits, and session resume, close, or delete remain outside this change.
+Subagents, goals, prompt suggestions, and session resume, close, or delete remain outside this change.

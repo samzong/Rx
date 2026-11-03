@@ -1,3 +1,4 @@
+import type { LodySessionMeta } from "acp-extension-core";
 import { isAbsolute, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
@@ -158,7 +159,7 @@ export function compactionUpdate(event: CompactionEvent, supported: boolean, can
     kind: "other",
     status: event.status,
     ...(event.message ? { content: [{ type: "content", content: { type: "text", text: event.message } }] } : {}),
-    _meta: lodyMeta({ activity: { version: 1, kind: "context_compaction" } }),
+    _meta: lodyMeta({ activity: { version: 1, kind: "context_compaction" } } satisfies LodySessionMeta),
   };
 }
 
@@ -169,6 +170,6 @@ export function retryUpdate(event: RetryEvent): Update {
     title: `Retrying model request (${event.attempt}/${event.maxAttempts})`,
     kind: "other",
     status: event.status,
-    _meta: lodyMeta({ activity: { version: 1, kind: "retry" } }),
+    _meta: lodyMeta({ activity: { version: 1, kind: "retry" } } satisfies LodySessionMeta),
   };
 }
