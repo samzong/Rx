@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { McpServer } from "@agentclientprotocol/sdk/unstable";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { McpAbortError, McpClient, McpConnectionClosedError, McpError, McpHttpError, McpTimeoutError, StdioTransport, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 import { Type } from "typebox";
 import { VERSION } from "./version.ts";
@@ -37,6 +38,43 @@ class ConfigurationError extends Error {}
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function mcpStreamOptions(model: Model<Api>, context: Context, options: SimpleStreamOptions): SimpleStreamOptions {
+  if (model.api !== "anthropic-messages") return options;
+  const schemas = new Map<object, { name: string; parameters: Record<string, unknown> }>();
+  const tools = [...context.tools ?? [], ...context.messages.flatMap((message) => message.role === "system" ? message.toolsAdded ?? [] : [])];
+  for (const tool of tools) {
+    if (tool.name.startsWith("mcp__") && record(tool.parameters) && record(tool.parameters.properties) && (tool.parameters.$defs !== undefined || tool.parameters.definitions !== undefined)) schemas.set(tool.parameters.properties, { name: tool.name, parameters: tool.parameters });
+  }
+  if (!schemas.size) return options;
+  const restore = (definition: unknown): unknown => {
+    if (!record(definition) || definition.strict === true || !record(definition.input_schema)) return definition;
+    const schema = definition.input_schema;
+    const original = record(schema.properties) ? schemas.get(schema.properties) : undefined;
+    if (!original || original.name !== definition.name) return definition;
+    const tables = Object.fromEntries(["$defs", "definitions"].filter((key) => original.parameters[key] !== undefined).map((key) => [key, original.parameters[key]]));
+    return Object.keys(tables).length ? { ...definition, input_schema: { ...schema, ...tables } } : definition;
+  };
+  return {
+    ...options,
+    onPayload: async (payload, selected) => {
+      if (!record(payload)) return options.onPayload ? options.onPayload(payload, selected) : undefined;
+      const repaired = {
+        ...payload,
+        ...(Array.isArray(payload.tools) ? { tools: payload.tools.map(restore) } : {}),
+        ...(Array.isArray(payload.messages) ? { messages: payload.messages.map((message: unknown) => {
+          if (!record(message) || !Array.isArray(message.content)) return message;
+          return { ...message, content: message.content.map((block: unknown) => {
+            if (!record(block) || block.type !== "tool_addition" || !record(block.tool) || block.tool.type !== "tool_definition") return block;
+            return { ...block, tool: { ...block.tool, definition: restore(block.tool.definition) } };
+          }) };
+        }) } : {}),
+      };
+      const next = await options.onPayload?.(repaired, selected);
+      return next === undefined ? repaired : next;
+    },
+  };
 }
 
 function expand(value: string): string {

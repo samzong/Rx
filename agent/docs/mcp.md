@@ -56,6 +56,19 @@ rx-agent skips entries with unsupported pi fields, including exposure controls, 
 rx-agent declares discovered tools directly to the model.
 It does not load pi's extension runtime, project configuration, resource tools, prompt templates, or tool search.
 
+## Tool schemas
+
+MCP schemas keep local references and their `$defs` and `definitions` tables.
+With pi-ai 1.4.0, Rx restores those tables in non-strict Anthropic tool definitions after provider serialization.
+This applies to initial tools and inline tool additions, including same-name redefinitions.
+Other providers keep their existing serialization.
+Local argument validation still uses the complete MCP schema.
+
+Rx does not inline references because recursive schemas cannot be fully expanded.
+The adapter matches each serialized definition to its original properties object.
+The provider contract tests cover this pi-ai behavior and must pass after a dependency update.
+Root-level references and other root fields that pi-ai removes keep their existing behavior.
+
 ## ACP and session lifetime
 
 ACP `session/new` and `session/load` merge `mcpServers` with the user configuration.
