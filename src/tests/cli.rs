@@ -39,6 +39,7 @@ fn launch_syntax_preserves_harness_provider_and_literal_arguments() {
 #[cfg(unix)]
 #[test]
 fn bash_completions_follow_argument_context() {
+    use crate::args::CompletionShell;
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
