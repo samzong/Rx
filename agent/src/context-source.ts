@@ -25,6 +25,25 @@ export interface SessionHistoryReader {
 }
 
 const sources = new WeakMap<AgentMessage, SourceRange[]>();
+const invalidatedUsage = new WeakSet<AgentMessage>();
+
+export function invalidateContextUsage(messages: AgentMessage[]): void {
+  for (const message of messages) if (message.role === "assistant") invalidatedUsage.add(message);
+}
+
+export function contextUsageInvalidated(message: AgentMessage): boolean {
+  return invalidatedUsage.has(message);
+}
+
+export function contextRequestMessage(message: AgentMessage): AgentMessage {
+  if (message.role !== "assistant" || !invalidatedUsage.has(message)) return message;
+  const request = {
+    ...message,
+    usage: { ...message.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+  };
+  invalidatedUsage.add(request);
+  return request;
+}
 
 export function setMessageSources(message: AgentMessage, ranges: SourceRange[]): void {
   sources.set(message, ranges.map((range) => ({ ...range })));

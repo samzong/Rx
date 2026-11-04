@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { CompactionCheckpoint } from "./context-control.ts";
-import { clearedMessage, rawMessageSeq, setMessageSources, type SourceRange } from "./context-source.ts";
+import { clearedMessage, invalidateContextUsage, rawMessageSeq, setMessageSources, type SourceRange } from "./context-source.ts";
 import { validateSummarySources } from "./context-citations.ts";
 import type { Origin } from "./session-log.ts";
 import { sessionTurns, type LocatedTurn } from "./session-turns.ts";
@@ -159,6 +159,7 @@ export function sessionRecords(values: unknown[], path: string): {
     }
     if (value.type === "context_prune") {
       validatePrune(value, entries.length, messages, cleared, location);
+      invalidateContextUsage(messages);
       const selected = new Set(value.clearedSeqs);
       messages = messages.map((message) => {
         const seq = rawMessageSeq(message);
