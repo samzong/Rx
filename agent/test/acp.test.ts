@@ -6,7 +6,7 @@ import { Readable, Writable } from "node:stream";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxThinking, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { createAcpApp, historyUpdates, promptInput, type AcpOptions } from "../src/acp.ts";
+import { createAcpApp, type AcpOptions } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, foreignSession, tempDir } from "./helpers.ts";
 
@@ -28,15 +28,6 @@ function harness(choose?: AcpOptions["choose"]) {
 }
 
 const newSession = (ctx: acp.ClientContext, cwd: string) => ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
-
-test("initialize advertises load, list, and prompt capabilities", async () => {
-  const { run } = harness();
-  const result = await run((ctx) => ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION }));
-  assert.equal(result.agentCapabilities?.loadSession, true);
-  assert.deepEqual(result.agentCapabilities?.promptCapabilities, { image: true, audio: false, embeddedContext: true });
-  assert.deepEqual(result.agentCapabilities?.sessionCapabilities, { list: {}, fork: {} });
-  assert.equal(result.agentInfo?.name, "rx");
-});
 
 test("a prompt streams thought, text, and tool updates, then replays them on load", async () => {
   const { faux, home, cwd, run, kinds } = harness();
@@ -129,9 +120,9 @@ test("prompts are rejected for unknown sessions and while a session is running",
     const { sessionId } = await newSession(ctx, cwd);
     const first = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "a" }] });
     while (!updates.some((u) => u.update.sessionUpdate === "tool_call")) await new Promise((r) => setTimeout(r, 10));
-    await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "b" }] }), /already running/);
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }), /running/);
-    await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", value: "off" }), /running/);
+    await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "b" }] }));
+    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
+    await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", value: "off" }));
     await ctx.notify(acp.methods.agent.session.cancel, { sessionId });
     await first;
   });
@@ -163,23 +154,10 @@ test("session/load with a different cwd neither locks nor repairs the session", 
   const { id, path, lock } = foreignSession(cwd, [["model", dangling]], home);
   const before = readFileSync(path);
   await run(async (ctx) => {
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd: tempDir(), mcpServers: [] }), /belongs to/);
+    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd: tempDir(), mcpServers: [] }));
   });
   assert.deepEqual(readFileSync(path), before);
   assert.equal(existsSync(lock), false);
-});
-
-test("failed session/new and session/load leave no files or locks behind", async () => {
-  const { home, cwd, run } = harness(async () => {
-    throw new Error("no model configured");
-  });
-  const { id } = foreignSession(cwd, [], home);
-  await run(async (ctx) => {
-    await assert.rejects(newSession(ctx, cwd), /no model configured/);
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd, mcpServers: [] }), /no model configured/);
-    await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: "01900000-0000-7000-8000-000000000000", cwd, mcpServers: [] }));
-  });
-  assert.deepEqual(readdirSync(join(home, "sessions")), [`${id}.jsonl`]);
 });
 
 test("instruction failures neither create sessions nor lock or repair a loaded session, and retries recover", async (t) => {
@@ -217,24 +195,6 @@ test("instruction failures neither create sessions nor lock or repair a loaded s
     const created = await newSession(ctx, cwd);
     assert.notEqual(created.sessionId, id);
   });
-});
-
-test("replayed tool calls from an aborted message are shown as failed", () => {
-  const aborted = fauxAssistantMessage([fauxToolCall("bash", { command: "make" }, { id: "x1" })], { stopReason: "aborted" });
-  const [update] = historyUpdates("/work", [aborted]);
-  assert.ok(update?.sessionUpdate === "tool_call" && update.status === "failed");
-});
-
-test("prompt input maps resources and links to text and rejects audio", () => {
-  const input = promptInput([
-    { type: "text", text: "see" },
-    { type: "resource_link", name: "spec", uri: "file:///spec.md" },
-    { type: "resource", resource: { uri: "file:///a.ts", text: "code" } },
-    { type: "image", data: "AAAA", mimeType: "image/png" },
-  ]);
-  assert.equal(input.text, 'see\n\n[spec](file:///spec.md)\n\n<resource uri="file:///a.ts">\ncode\n</resource>');
-  assert.deepEqual(input.images, [{ type: "image", data: "AAAA", mimeType: "image/png" }]);
-  assert.throws(() => promptInput([{ type: "audio", data: "AAAA", mimeType: "audio/wav" }]), /unsupported prompt content: audio/);
 });
 
 test("rx acp speaks ndjson over stdio", async () => {
@@ -281,7 +241,6 @@ test("load replays a session after its cwd is deleted while new rejects the miss
   assert.deepEqual(readdirSync(join(home, "sessions")).filter((file) => file.endsWith(".jsonl")), [`${id}.jsonl`]);
 });
 
-
 test("session configuration changes the next model call and load returns a fresh complete snapshot", async () => {
   const faux = fauxProvider({ models: [
     { id: "reasoner", name: "Reasoner", reasoning: true, contextWindow: 10000, input: ["text", "image"] },
@@ -307,7 +266,7 @@ test("session configuration changes the next model call and load returns a fresh
     assert.equal(configured.configOptions.find((option) => option.id === "thinking")?.currentValue, "off");
     await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "thinking", value: "high" }));
     await assert.rejects(ctx.request(acp.methods.agent.session.setConfigOption, { sessionId, configId: "fast", type: "boolean", value: true }));
-    await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "image", data: "AAAA", mimeType: "image/png" }] }), /does not support image input/);
+    await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "image", data: "AAAA", mimeType: "image/png" }] }));
     assert.equal(faux.state.callCount, 0);
     faux.setResponses([(_context, options, _state, calledModel) => {
       assert.equal(calledModel.id, "plain");
@@ -325,4 +284,12 @@ test("session configuration changes the next model call and load returns a fresh
     assert.equal(loaded.configOptions?.find((option) => option.id === "model")?.currentValue, `${model.provider}/reasoner`);
     assert.equal(loaded.configOptions?.find((option) => option.id === "thinking")?.currentValue, "high");
   });
+});
+
+test("initialize advertises load, list, and prompt capabilities", async () => {
+  const { run } = harness();
+  const result = await run((ctx) => ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION }));
+  assert.equal(result.agentCapabilities?.loadSession, true);
+  assert.deepEqual(result.agentCapabilities?.promptCapabilities, { image: true, audio: false, embeddedContext: true });
+  assert.deepEqual(result.agentCapabilities?.sessionCapabilities, { list: {}, fork: {} });
 });

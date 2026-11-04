@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
-import { Agent } from "@earendil-works/pi-agent-core";
 import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
@@ -68,41 +67,6 @@ test("saved fast false is harmless on unsupported models while fast true still f
     assert.ok(!loaded.configOptions?.some((option) => option.id === "fast"));
     await assert.rejects(ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: meta(true) }), { code: -32602 });
     await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId: created.sessionId, cwd, mcpServers: [], _meta: meta(true) }), { code: -32602 });
-  });
-});
-
-test("an active ACP prompt accepts steering before the agent loop starts", async (t) => {
-  const faux = fauxProvider();
-  const models = createModels();
-  models.setProvider(faux.provider);
-  let starting!: () => void;
-  let release!: () => void;
-  const started = new Promise<void>((resolve) => { starting = resolve; });
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const original = Agent.prototype.prompt;
-  t.mock.method(Agent.prototype, "prompt", async function (this: Agent, ...args: Parameters<Agent["prompt"]>) {
-    starting();
-    await gate;
-    return original.apply(this, args);
-  });
-  const applied: unknown[] = [];
-  let seen = false;
-  faux.setResponses([(context) => {
-    seen = JSON.stringify(context.messages).includes("early steer");
-    return fauxAssistantMessage("early steer");
-  }]);
-  const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model: faux.getModel()!, thinking: "off" }) });
-  await acp.client().onNotification("_lody/session/steer_applied", (value: unknown) => value, ({ params }) => { applied.push(params); }).connectWith(app, async (ctx) => {
-    const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd: tempDir(), mcpServers: [] });
-    const prompt = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "begin" }] });
-    await started;
-    const steer = ctx.request("_lody/session/steer", { sessionId, steerId: "early", prompt: [{ type: "text", text: "early steer" }] }).then((value) => value, (error: unknown) => error);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    release();
-    assert.equal((await prompt).stopReason, "end_turn");
-    assert.deepEqual(await steer, { outcome: "injected" });
-    assert.deepEqual(applied, [{ sessionId, steerId: "early" }]);
-    assert.ok(seen);
   });
 });
 

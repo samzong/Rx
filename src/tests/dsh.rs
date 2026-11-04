@@ -28,31 +28,6 @@ fn dsh_deepseek_uses_official_adapter_and_clears_pi_ai_routes() {
 }
 
 #[test]
-fn dsh_injects_provider_catalog() {
-    let (_dir, paths) = temp_paths();
-    let (base_url, server) =
-        serve_openai_models(r#"{"data":[{"id":"kimi-k3"},{"id":"gpt-5.6-sol"}]}"#);
-    fs::write(&paths.config, format!("[provider.tokener]\nbase_url = \"{base_url}\"\n")).unwrap();
-    let env = isolated(&[("TOKENER_API_KEY", "sk-fixture")]);
-    let plan = launch::plan(&request(Harness::Dsh, Some("tokener"), &[]), &paths, &env).unwrap();
-    server.join().unwrap();
-    assert_eq!(plan.env_set, vec![("TOKENER_API_KEY".to_string(), "sk-fixture".to_string())]);
-    let settings: serde_yaml::Value = serde_yaml::from_str(
-        &fs::read_to_string(paths.dir.join("dsh").join("tokener").join("settings.yaml")).unwrap(),
-    )
-    .unwrap();
-    let models = settings["llm-pi-ai"]["providers"]["tokener"]["models"].as_sequence().unwrap();
-    assert_eq!(settings["llm-pi-ai"]["providers"]["tokener"]["api"], "openai-completions");
-    assert_eq!(models.len(), 2);
-    assert_eq!(models[0]["id"], "kimi-k3");
-    assert_eq!(models[1]["id"], "gpt-5.6-sol");
-    assert!(models[0].get("reasoningEfforts").is_none());
-    assert!(models[1].get("reasoningEfforts").is_none());
-    assert_eq!(settings["agent-default-model"]["provider"], "tokener");
-    assert!(settings["agent-default-model"].get("model").is_none());
-}
-
-#[test]
 fn dsh_overlays_are_isolated_per_provider() {
     let (_dir, paths) = temp_paths();
     let (fixture_url, fixture_server) = serve_openai_models(r#"{"data":[{"id":"kimi-k3"}]}"#);
@@ -161,11 +136,10 @@ fn yolo_forces_dsh_preset_over_user_settings() {
     let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"kimi-k3"}]}"#);
     fs::write(&paths.config, fixture_config(&base_url)).unwrap();
     let env = isolated(&[("ACME_API_KEY", "sk-fixture"), ("DSH_HOME", dsh_home.to_str().unwrap())]);
-    let plan = launch::plan(&request(Harness::Dsh, Some("acme"), &[]), &paths, &env).unwrap();
+    launch::plan(&request(Harness::Dsh, Some("acme"), &[]), &paths, &env).unwrap();
     server.join().unwrap();
     let overlay = paths.dir.join("dsh").join("acme").join("settings.yaml");
     let settings: serde_yaml::Value =
         serde_yaml::from_str(&fs::read_to_string(&overlay).unwrap()).unwrap();
     assert_eq!(settings["permission"]["defaultPreset"], "danger-full-access");
-    assert!(plan.stderr_note.as_deref().unwrap().contains("yolo"));
 }

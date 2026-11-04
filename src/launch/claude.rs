@@ -26,28 +26,6 @@ pub(super) fn plan(
     )
 }
 
-#[cfg(test)]
-pub(crate) fn inject_claude_openrouter(
-    request: &LaunchRequest,
-    base_url: &str,
-    key: &str,
-    model: Option<&str>,
-    seed: SeedOutcome,
-) -> LaunchPlan {
-    inject(request, "OPENROUTER_API_KEY", base_url, key, model, true, seed)
-}
-
-#[cfg(test)]
-pub(crate) fn inject_claude_generated_seeded(
-    request: &LaunchRequest,
-    env_key: &str,
-    base_url: &str,
-    key: &str,
-    model: Option<&str>,
-) -> LaunchPlan {
-    inject(request, env_key, base_url, key, model, false, SeedOutcome::Seeded)
-}
-
 fn inject(
     request: &LaunchRequest,
     env_key: &str,

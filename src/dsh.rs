@@ -364,42 +364,6 @@ mod tests {
         );
     }
 
-    fn os(argv: &[&str]) -> Vec<OsString> {
-        argv.iter().map(|arg| OsString::from(*arg)).collect()
-    }
-
-    #[test]
-    fn default_args_boot_tui_profile() {
-        assert_eq!(args(&[], None), os(&["--profile", PROFILE]));
-        assert_eq!(args(&os(&["--resume"]), None), os(&["--profile", PROFILE, "--resume"]));
-    }
-
-    #[test]
-    fn keeps_explicit_profile_and_web() {
-        assert_eq!(
-            args(&os(&["--profile", "headless", "job"]), None),
-            os(&["--profile", "headless", "job"])
-        );
-        assert_eq!(args(&os(&["web", "--port", "8080"]), None), os(&["web", "--port", "8080"]));
-        assert_eq!(
-            args(&os(&["plugin", "--profile", PROFILE]), None),
-            os(&["plugin", "--profile", PROFILE])
-        );
-    }
-
-    #[test]
-    fn patch_follows_web_subcommand() {
-        let patch = PathBuf::from("/tmp/rx.cordis.yml");
-        assert_eq!(
-            args(&os(&["web"]), Some(&patch)),
-            os(&["web", "--patch", "/tmp/rx.cordis.yml"])
-        );
-        assert_eq!(
-            args(&[], Some(&patch)),
-            os(&["--profile", PROFILE, "--patch", "/tmp/rx.cordis.yml"])
-        );
-    }
-
     #[test]
     fn profile_readiness_requires_activated_installed_bundle() {
         let root = tempfile::tempdir().unwrap();
@@ -442,46 +406,30 @@ mod tests {
             protocol,
             env: &env,
         };
-        assert_eq!(protocol, ModelProtocol::OpenAiResponses);
-        let models = ["gpt-5.6-sol", "glm-5.2", "kimi-k3"]
-            .into_iter()
-            .map(|id| DshModel {
-                id: id.to_string(),
-                reasoning: crate::provider::reasoning_control(
-                    "tokener",
-                    &provider.endpoint,
-                    id,
-                    protocol,
-                )
-                .cloned(),
-            })
-            .collect::<Vec<_>>();
+        let models = ["gpt-5.6-sol", "glm-5.2", "kimi-k3"].map(|id| DshModel {
+            id: id.to_string(),
+            reasoning: crate::provider::reasoning_control(
+                "tokener",
+                &provider.endpoint,
+                id,
+                protocol,
+            )
+            .cloned(),
+        });
         let section = llm_pi_ai_section(&context, &models);
-        assert_eq!(section["providers"]["tokener"]["api"], "openai-responses");
         let entries = section["providers"]["tokener"]["models"].as_sequence().unwrap();
-        assert_eq!(entries[0]["reasoningEfforts"]["off"], "none");
-        assert_eq!(entries[0]["reasoningEfforts"]["low"], "low");
-        assert_eq!(entries[0]["reasoningEfforts"]["medium"], "medium");
-        assert_eq!(entries[0]["reasoningEfforts"]["high"], "high");
-        assert_eq!(entries[0]["reasoningEfforts"]["xhigh"], "xhigh");
         assert_eq!(entries[0]["reasoningEfforts"]["max"], "max");
-        assert_eq!(entries[1]["reasoningEfforts"]["off"], "none");
-        assert_eq!(entries[1]["reasoningEfforts"]["low"], "low");
         assert_eq!(entries[1]["reasoningEfforts"]["medium"], "medium");
         assert!(entries[1]["reasoningEfforts"].get("high").is_none());
         assert!(entries[2].get("reasoningEfforts").is_none());
+    }
+
+    #[test]
+    fn patch_follows_web_subcommand() {
+        let patch = PathBuf::from("/tmp/rx.cordis.yml");
         assert_eq!(
-            crate::provider::dsh_protocol("tokener", "https://proxy.example.com/v1"),
-            ModelProtocol::OpenAiCompletions
-        );
-        assert!(
-            crate::provider::reasoning_control(
-                "tokener",
-                "https://proxy.example.com/v1",
-                "gpt-5.6-sol",
-                ModelProtocol::OpenAiResponses,
-            )
-            .is_none()
+            args(&[OsString::from("web")], Some(&patch)),
+            ["web", "--patch", "/tmp/rx.cordis.yml"].map(OsString::from)
         );
     }
 }

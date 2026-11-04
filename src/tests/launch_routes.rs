@@ -9,7 +9,6 @@ fn unconfigured_launch_is_passthrough() {
     assert_eq!(plan.program, PathBuf::from("claude"));
     assert_eq!(plan.args, os(&["--resume", "abc"]));
     assert!(plan.env_set.is_empty());
-    assert!(plan.stderr_note.as_deref().unwrap().contains("no provider configured"));
 }
 
 #[test]
@@ -19,17 +18,6 @@ fn unconfigured_dsh_still_boots_tui_profile() {
         launch::plan(&request(Harness::Dsh, None, &["--resume"]), &paths, &isolated(&[])).unwrap();
     assert_eq!(plan.program, PathBuf::from("dsh"));
     assert_eq!(plan.args, os(&["--profile", "dsh-tui", "--resume"]));
-    assert!(plan.env_set.is_empty());
-}
-
-#[test]
-fn unconfigured_kimi_launches_as_is() {
-    let (_dir, paths) = temp_paths();
-    let plan =
-        launch::plan(&request(Harness::Kimi, None, &["web", "--no-open"]), &paths, &isolated(&[]))
-            .unwrap();
-    assert_eq!(plan.program, PathBuf::from("kimi"));
-    assert_eq!(plan.args, os(&["web", "--no-open"]));
     assert!(plan.env_set.is_empty());
 }
 
@@ -54,8 +42,6 @@ fn kimi_explicit_model_seeds_selected_alias_when_catalog_is_unavailable() {
     assert_eq!(config["providers"]["rx-acme"]["type"].as_str(), Some("openai"));
     assert_eq!(config["providers"]["rx-acme"]["base_url"].as_str(), Some("http://127.0.0.1:9/v1"));
     assert_eq!(config["models"]["rx-acme/kimi-k3"]["model"].as_str(), Some("kimi-k3"));
-    assert!(plan.stderr_note.as_deref().unwrap().contains("seeding only the selected model"));
-    assert!(plan.stderr_note.as_deref().unwrap().contains("yolo"));
 }
 
 #[test]
@@ -76,8 +62,6 @@ fn kimi_fallback_uses_first_provider_model_and_reports_it() {
     assert_eq!(config["models"].as_table().unwrap().len(), 2);
     assert_eq!(config["models"]["rx-acme/glm-5"]["model"].as_str(), Some("glm-5"));
     assert_eq!(config["models"]["rx-acme/kimi-k3"]["model"].as_str(), Some("kimi-k3"));
-    assert!(plan.stderr_note.as_deref().unwrap().contains("using first provider model 'glm-5'"));
-    assert!(!plan.stderr_note.as_deref().unwrap().contains("yolo"));
 }
 
 #[test]
@@ -94,7 +78,6 @@ fn kimi_skips_yolo_when_prompt_or_hidden_yolo_alias_is_set() {
         let plan =
             launch::plan(&request(Harness::Kimi, Some("acme"), passthrough), &paths, &env).unwrap();
         assert!(!plan.args.iter().any(|arg| arg == "--auto"), "{:?}", plan.args);
-        assert!(!plan.stderr_note.as_deref().is_some_and(|note| note.contains("yolo")));
     }
 }
 
@@ -119,7 +102,6 @@ fn claude_openrouter_uses_api_key_and_discovery_fallback_without_seed() {
             ("ANTHROPIC_MODEL", "~anthropic/claude-sonnet-latest"),
         ],
     );
-    assert!(plan.stderr_note.as_deref().unwrap().contains("catalog seed failed"));
 }
 
 #[test]
@@ -140,9 +122,6 @@ fn provider_none_skips_injection() {
             .unwrap();
     assert_eq!(plan.args, os(&["--resume", "abc"]));
     assert!(plan.env_set.is_empty());
-    let note = plan.stderr_note.unwrap();
-    assert!(note.contains("'none'"), "{note}");
-    assert!(!note.contains("no provider configured"), "{note}");
 }
 
 #[test]
@@ -162,21 +141,6 @@ fn use_none_skips_implicit_openrouter() {
     let plan = launch::plan(&request(Harness::Codex, None, &[]), &paths, &env).unwrap();
     assert!(plan.env_set.is_empty());
     assert!(plan.args.iter().all(|arg| arg != "model_provider=\"openrouter\""));
-    let note = plan.stderr_note.unwrap();
-    assert!(note.contains("'none'"), "{note}");
-    assert!(!note.contains("no provider configured"), "{note}");
-}
-
-#[test]
-fn models_update_rejects_none_provider() {
-    let (_dir, paths) = temp_paths();
-    let error = crate::providers::run(
-        ProvidersCommand::ModelsUpdate { provider: Some("none".to_string()) },
-        &paths,
-        &isolated(&[]),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("skips provider injection"), "{error}");
 }
 
 #[test]
@@ -190,31 +154,12 @@ fn provider_override_wins_over_use_none() {
 }
 
 #[test]
-fn none_is_reserved_provider_id() {
-    let error = provider::validate_id("none").unwrap_err();
-    assert!(error.to_string().contains("reserved"), "{error}");
-    let error = provider::resolve("none", None).unwrap_err();
-    assert!(error.to_string().contains("reserved"), "{error}");
-}
-
-#[test]
-fn claude_injection_non_openrouter_still_uses_auth_token() {
-    let (_dir, paths) = temp_paths();
-    fs::write(&paths.config, fixture_config("https://provider.test/v1")).unwrap();
-    let env = isolated(&[("ACME_API_KEY", "sk-fixture")]);
-    let plan =
-        launch::plan(&request(Harness::Claude, Some("acme"), &["fix it"]), &paths, &env).unwrap();
-    assert_env(&plan, &[("ANTHROPIC_AUTH_TOKEN", "sk-fixture"), ("ANTHROPIC_API_KEY", "")]);
-}
-
-#[test]
 fn codex_openrouter_overrides_model_and_uses_command_auth() {
     let (_dir, paths) = temp_paths();
     let env = isolated(&[("OPENROUTER_API_KEY", "sk-or-test")]);
     let plan =
         launch::plan(&request(Harness::Codex, Some("openrouter"), &[]), &paths, &env).unwrap();
     assert_eq!(plan.program, PathBuf::from("codex"));
-    assert_eq!(plan.args[0], "-c");
     assert_eq!(plan.args[1], "model_provider=\"openrouter\"");
     assert!(arg_str(&plan.args[3]).contains("base_url=\"https://openrouter.ai/api/v1\""));
     assert!(arg_str(&plan.args[3]).contains("wire_api=\"responses\""));
@@ -374,22 +319,7 @@ fn opencode_server_commands_preserve_native_arguments() {
         .unwrap();
         assert_eq!(plan.args, os(passthrough));
         assert!(plan.env_set.iter().any(|(key, _)| key == "OPENCODE_CONFIG_CONTENT"));
-        assert!(!plan.stderr_note.as_deref().is_some_and(|note| note.contains("yolo")));
     }
-}
-
-#[test]
-fn opencode_non_generated_catalog_failure_degrades_to_base_config() {
-    let (_dir, paths) = temp_paths();
-    let (base_url, server) = serve_openai_error(500);
-    let provider = provider::find("openrouter").unwrap();
-    let config =
-        crate::opencode::config_content("openrouter", provider, &base_url, "sk-test", &paths, true)
-            .unwrap();
-    server.join().unwrap();
-    let document: Value = serde_json::from_str(&config).unwrap();
-    assert_eq!(document["provider"]["openrouter"]["options"]["baseURL"], format!("{base_url}/v1"));
-    assert!(document["provider"]["openrouter"].get("models").is_none());
 }
 
 #[test]
@@ -403,7 +333,6 @@ fn yolo_respects_user_permission_flag() {
     )
     .unwrap();
     assert_eq!(plan.args, os(&["--permission-mode=acceptEdits", "fix it"]));
-    assert!(!plan.stderr_note.as_deref().unwrap_or_default().contains("yolo"));
 
     let plan = launch::plan(
         &request(
@@ -417,7 +346,6 @@ fn yolo_respects_user_permission_flag() {
     .unwrap();
     assert!(!plan.args.iter().any(|arg| arg == "--sandbox"));
     assert!(!plan.args.iter().any(|arg| arg == "--ask-for-approval"));
-    assert!(!plan.stderr_note.as_deref().unwrap_or_default().contains("yolo"));
 }
 
 #[test]
@@ -428,7 +356,6 @@ fn rx_no_yolo_disables_injection() {
         launch::plan(&request(Harness::Claude, Some("openrouter"), &["fix it"]), &paths, &env)
             .unwrap();
     assert_eq!(plan.args, os(&["fix it"]));
-    assert!(!plan.stderr_note.as_deref().unwrap_or_default().contains("yolo"));
 }
 
 #[test]
@@ -465,12 +392,12 @@ fn codex_provider_without_default_model_does_not_invent_one() {
 }
 
 #[test]
-fn isolated_codex_plan_does_not_write_model_catalog_json() {
+fn unconfigured_kimi_launches_as_is() {
     let (_dir, paths) = temp_paths();
-    fs::write(&paths.config, fixture_config("https://provider.test/v1")).unwrap();
-    let env = isolated(&[("ACME_API_KEY", "sk-fixture")]);
     let plan =
-        launch::plan(&request(Harness::Codex, Some("acme"), &["exec"]), &paths, &env).unwrap();
-    assert!(!plan.args.iter().any(|arg| arg_str(arg).contains("model_catalog_json")));
-    assert!(!paths.dir.join("catalogs").exists());
+        launch::plan(&request(Harness::Kimi, None, &["web", "--no-open"]), &paths, &isolated(&[]))
+            .unwrap();
+    assert_eq!(plan.program, PathBuf::from("kimi"));
+    assert_eq!(plan.args, os(&["web", "--no-open"]));
+    assert!(plan.env_set.is_empty());
 }

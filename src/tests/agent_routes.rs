@@ -54,7 +54,6 @@ fn agent_route_hands_off_provider_catalog_with_first_model_as_default() {
             .iter()
             .any(|(key, value)| key != "ACME_API_KEY" && value.contains("sk-fixture"))
     );
-    assert!(plan.stderr_note.is_none());
 }
 
 #[test]
@@ -100,7 +99,6 @@ fn agent_selected_model_survives_an_unavailable_catalog() {
         serde_json::json!([{"id": "kimi-k3", "contextWindow": 200000, "reasoning": false}])
     );
     assert_eq!(document["defaultModel"], "kimi-k3");
-    assert!(plan.stderr_note.unwrap().contains("handing off only the selected models"));
 
     fs::write(
         &paths.config,

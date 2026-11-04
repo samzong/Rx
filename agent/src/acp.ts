@@ -18,7 +18,6 @@ import { loadHooks } from "./hook-config.ts";
 import { hookControl } from "./hooks.ts";
 import type { SkillCommand } from "./skills.ts";
 import { historyUpdates } from "./acp-messages.ts";
-export { eventUpdates, historyUpdates, promptInput } from "./acp-messages.ts";
 import { contextControl } from "./context-control.ts";
 import { forkTurnId, initialSessionConfig, LODY_CAPABILITIES, lodyMeta, object, SESSION_CAPABILITIES, sessionSteering, steerRequest, worktreeProject } from "./acp-lody.ts";
 import { LODY_EXTENSION_METHODS, type LodySessionMeta, type RateLimitsSnapshot } from "acp-extension-core";

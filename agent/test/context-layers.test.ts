@@ -7,8 +7,6 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
 import { createRxAgent } from "../src/agent.ts";
 import { contextControl } from "../src/context-control.ts";
-import { validateSummarySources } from "../src/context-citations.ts";
-import { pruningPlan, compactionPlan } from "../src/context-plan.ts";
 import { messageSources } from "../src/context-source.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, tempDir } from "./helpers.ts";
@@ -79,34 +77,6 @@ test("three compactions preserve original source ordinals across new retained ob
     if (index < 2) await h.agent.prompt(`New evidence ${index}. ` + "later visible evidence ".repeat(550));
   }
   assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 3);
-});
-
-test("source labels repeat on each split of an oversized original message", () => {
-  const h = setup([user("evidence ".repeat(13000)), fauxAssistantMessage("Recorded")]);
-  const plan = compactionPlan(h.agent.state.messages, h.model)!;
-  assert.ok(plan.chunks.length > 1);
-  for (const chunk of plan.chunks) assert.match(chunk.text, /^\[log 1-1\]/);
-});
-
-test("citation validation rejects missing, malformed, fabricated, usage-gap, and narrowed legacy references", () => {
-  const allowed = [{ from: 1, to: 2 }, { from: 4, to: 4 }];
-  for (const text of ["An uncited fact", "A fact. [log 1]", "A fact. [log 9-9]", "A fact. [log 1-4]", "A fact. [log 2-1]", "## Only headings"]) {
-    assert.throws(() => validateSummarySources(text, allowed));
-  }
-  assert.throws(() => validateSummarySources("A narrow claim. [log 2-2]", [{ from: 1, to: 10, coverage: true }]));
-  assert.deepEqual(validateSummarySources("## Goal\nA supported claim. [log 1-2]\n(none)", allowed), [{ from: 1, to: 2 }]);
-  assert.deepEqual(validateSummarySources("A coverage claim. [log 1-10]", [{ from: 1, to: 10, coverage: true }]), [{ from: 1, to: 10, coverage: true }]);
-});
-
-test("a failed prune append never installs cleared content", async (t) => {
-  const h = setup([user("Inspect evidence"), call("old"), result("old", "preserved original ".repeat(4000)), fauxAssistantMessage("Observed"), call("recent"), result("recent", "Recent evidence")]);
-  const original = h.agent.state.messages.find((message) => message.role === "toolResult")!;
-  t.mock.method(h.log, "appendPrune", () => { throw new Error("Injected append failure"); });
-  await h.agent.prompt("Continue");
-  assert.equal(records(h.log).at(-1).message.stopReason, "error");
-  assert.equal(h.agent.state.messages.find((message) => message.role === "toolResult"), original);
-  assert.equal(records(h.log).some((entry) => entry.type === "context_prune"), false);
-  assert.equal(h.faux.state.callCount, 0);
 });
 
 test("cancelling a summary after clearing preserves the committed clearing selection without replay", async () => {

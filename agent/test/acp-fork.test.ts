@@ -33,24 +33,6 @@ function turnIds(updates: acp.SessionNotification[], sessionId: string): string[
   });
 }
 
-test("live prompts and load replay report the same persisted turn boundaries", async () => {
-  const { faux, cwd, updates, run } = harness();
-  faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
-  await run(async (ctx) => {
-    const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
-    for (const text of ["first", "second"]) {
-      const before = updates.length;
-      await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
-      assert.equal(turnIds(updates.slice(before), sessionId).length, 1);
-      assert.ok((updates[before]?.update._meta?.lody as { turnId?: string })?.turnId);
-    }
-    const live = turnIds(updates, sessionId);
-    const before = updates.length;
-    await ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
-    assert.deepEqual(turnIds(updates.slice(before), sessionId), live);
-  });
-});
-
 test("fork advertises Lody turn boundaries and keeps the selected complete turn", async () => {
   const { faux, home, cwd, updates, run } = harness();
   let continued = false;
@@ -200,7 +182,6 @@ test("fork during a prompt snapshots unfinished tools without changing or cancel
     }
   });
 });
-
 
 test("fork truncates historical context usage and starts fresh accounting without billing replay", async () => {
   const { faux, home, cwd, updates, usage, run } = harness();

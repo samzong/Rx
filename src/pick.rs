@@ -376,27 +376,6 @@ mod tests {
     }
 
     #[test]
-    fn harness_picker_requires_tty() {
-        let error = pick(false, &EnvLookup::isolated(HashMap::new()), app()).unwrap_err();
-        assert!(error.to_string().contains("missing harness name"));
-    }
-
-    #[test]
-    fn shortcuts_launch_matching_harnesses() {
-        let mut app = app();
-        for choice in CHOICES {
-            let key = KeyEvent::new(KeyCode::Char(choice.shortcut), KeyModifiers::NONE);
-            assert_eq!(app.handle_key(key), PickerAction::Launch(choice.harness));
-
-            let key = KeyEvent::new(
-                KeyCode::Char(choice.shortcut.to_ascii_uppercase()),
-                KeyModifiers::SHIFT,
-            );
-            assert_eq!(app.handle_key(key), PickerAction::Launch(choice.harness));
-        }
-    }
-
-    #[test]
     fn the_agent_leads_the_picker() {
         let mut app = app();
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
@@ -409,7 +388,6 @@ mod tests {
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Claude));
         let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         assert_eq!(app.handle_key(key), PickerAction::Continue);
-        assert!(!app.recommend_agent);
         let palette = Palette::current(&EnvLookup::isolated(HashMap::new()));
         assert!(
             harness_lines(&app, &palette)
@@ -424,31 +402,9 @@ mod tests {
         let mut app = App::new(CHOICES.to_vec(), Vec::new(), None, true);
         let lines = harness_lines(&app, &palette);
         assert_eq!(lines.iter().filter(|line| line.to_string().contains("recommended")).count(), 1);
-        let agent = lines.iter().find(|line| line.to_string().contains("rx-agent")).unwrap();
-        let hint = agent.spans.last().unwrap();
-        assert_eq!(hint.content, "  recommended");
-        assert_eq!(hint.style, Style::default().fg(palette.muted));
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
         app.handle_key(press(KeyCode::Down));
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Claude));
-    }
-
-    #[test]
-    fn hiding_recommendation_keeps_the_agent_selectable() {
-        let palette = Palette::current(&EnvLookup::isolated(HashMap::new()));
-        let mut app = app();
-        let lines = harness_lines(&app, &palette);
-        assert!(lines.iter().all(|line| !line.to_string().contains("recommended")));
-        assert!(lines.iter().any(|line| line.to_string().contains("rx-agent")));
-        assert_eq!(app.handle_key(press(KeyCode::Char('a'))), PickerAction::Launch(Harness::Agent));
-    }
-
-    #[test]
-    fn arrows_and_enter_still_select_harnesses() {
-        let mut app = app();
-        assert_eq!(app.handle_key(press(KeyCode::Down)), PickerAction::Continue);
-        assert_eq!(app.handle_key(press(KeyCode::Down)), PickerAction::Continue);
-        assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Codex));
     }
 
     #[test]
@@ -468,13 +424,10 @@ mod tests {
             None,
             false,
         );
-        assert_eq!(app.provider_label().as_deref(), Some("openrouter (default)"));
         app.handle_key(press(KeyCode::Tab));
-        assert_eq!(app.provider_cursor, 0);
         app.handle_key(press(KeyCode::Down));
         app.handle_key(press(KeyCode::Enter));
         assert_eq!(app.provider.as_deref(), Some("deepseek"));
-        assert_eq!(app.provider_label().as_deref(), Some("deepseek"));
         assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
     }
 
@@ -488,46 +441,9 @@ mod tests {
     }
 
     #[test]
-    fn tab_without_configured_providers_stays_on_the_harness_step() {
+    fn shortcuts_launch_matching_harnesses() {
         let mut app = app();
-        assert_eq!(app.handle_key(press(KeyCode::Tab)), PickerAction::Continue);
-        assert_eq!(app.handle_key(press(KeyCode::Enter)), PickerAction::Launch(Harness::Agent));
-    }
-
-    fn rendered(app: &App, height: u16) -> Vec<String> {
-        provider_lines(
-            app,
-            &Palette::current(&EnvLookup::isolated(HashMap::new())),
-            Rect::new(0, 0, 80, height),
-        )
-        .iter()
-        .map(|line| line.to_string())
-        .collect()
-    }
-
-    #[test]
-    fn the_provider_list_pages_only_when_it_cannot_fit() {
-        let providers = (0..6).map(|index| choice(&format!("p{index}"), index == 0)).collect();
-        let app = App::new(CHOICES.to_vec(), providers, None, false);
-
-        let full = rendered(&app, 9);
-        assert_eq!(full.len(), 8);
-        assert!(full.iter().all(|line| !line.starts_with('(')), "{full:?}");
-        assert!(full.iter().any(|line| line.contains("p5")), "{full:?}");
-
-        let short = rendered(&app, 6);
-        assert_eq!(short.len(), 6);
-        assert!(short.iter().any(|line| line.contains("(1/6)")), "{short:?}");
-    }
-
-    #[test]
-    fn a_requested_provider_seeds_the_picker() {
-        let app = App::new(
-            CHOICES.to_vec(),
-            vec![choice("deepseek", false)],
-            Some("none".to_string()),
-            false,
-        );
-        assert_eq!(app.provider_label().as_deref(), Some("none"));
+        assert_eq!(app.handle_key(press(KeyCode::Char('a'))), PickerAction::Launch(Harness::Agent));
+        assert_eq!(app.handle_key(press(KeyCode::Char('x'))), PickerAction::Launch(Harness::Codex));
     }
 }

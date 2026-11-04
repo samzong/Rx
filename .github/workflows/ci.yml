@@ -40,8 +40,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: agent/pnpm-lock.yaml
       - uses: oven-sh/setup-bun@v2
-      - run: make agent-check
-      - run: make agent
+      - run: make agent-check agent
       - run: target/rx-agent --version
 
   kimi-windows:

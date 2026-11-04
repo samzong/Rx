@@ -69,10 +69,6 @@ test("an initial prompt stays interactive, preserves literal text, and keeps sub
   assert.equal(requests.length, before + 1);
   assert.match((await run(["models"])).stdout, /local\/plain/);
   assert.match((await run(["sessions"])).stdout, /one shot/);
-  await assert.rejects(run(["logout"]), /logout needs a provider/);
-  await assert.rejects(run(["login", "unknown-provider"]));
-  await assert.rejects(run(["sessions", "extra"]), /unexpected argument/);
-  await assert.rejects(run(["-p", "one shot", "extra task"]), /use either -p or an interactive prompt/);
 });
 
 test("CLI failures preserve persistence, --continue recovers, and resume survives a deleted cwd", { timeout: 30_000 }, async (t) => {

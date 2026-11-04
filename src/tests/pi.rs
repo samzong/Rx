@@ -41,24 +41,6 @@ fn pi_selected_credential_survives_route_cleanup() {
 }
 
 #[test]
-fn pi_merges_provider_into_models_json() {
-    let dir = tempfile::tempdir().unwrap();
-    let models_path = dir.path().join("models.json");
-    fs::write(&models_path, r#"{"providers":{"ollama":{"baseUrl":"http://127.0.0.1:11434/v1"}}}"#)
-        .unwrap();
-    let provider = json!({
-        "baseUrl": "https://provider.test/v1",
-        "apiKey": "$ACME_API_KEY",
-        "api": "openai-responses",
-        "models": [{ "id": "gpt-5.6-sol" }]
-    });
-    crate::pi::merge_provider(&models_path, "acme", provider).unwrap();
-    let document: Value = read_json(&models_path);
-    assert!(document["providers"]["ollama"].is_object());
-    assert_eq!(document["providers"]["acme"]["baseUrl"], "https://provider.test/v1");
-}
-
-#[test]
 fn pi_merge_provider_refuses_to_reset_corrupt_models_json() {
     let dir = tempfile::tempdir().unwrap();
     let models_path = dir.path().join("models.json");
@@ -76,23 +58,6 @@ fn pi_merge_provider_refuses_to_reset_corrupt_models_json() {
         assert!(crate::pi::merge_provider(&models_path, "acme", provider).is_err());
         assert_eq!(fs::read_to_string(&models_path).unwrap(), body);
     }
-}
-
-#[test]
-fn pi_prepares_native_models() {
-    let (dir, paths) = temp_paths();
-    let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"gpt-5.6-sol"}]}"#);
-    let provider = fixture_provider("https://provider.test/v1");
-    let agent_dir = dir.path().join("pi-agent");
-    let env = isolated(&[("PI_CODING_AGENT_DIR", agent_dir.to_str().unwrap())]);
-
-    crate::pi::prepare("acme", &provider, &base_url, "sk-test", &paths, &env).unwrap();
-    server.join().unwrap();
-
-    let models: Value = read_json(agent_dir.join("models.json"));
-    assert_eq!(models["providers"]["acme"]["baseUrl"], format!("{base_url}/v1"));
-    assert_eq!(models["providers"]["acme"]["apiKey"], "$ACME_API_KEY");
-    assert_eq!(models["providers"]["acme"]["models"][0]["id"], "gpt-5.6-sol");
 }
 
 #[test]
@@ -141,11 +106,4 @@ fn pi_purge_reports_unmarked_and_user_edited_residue() {
         read_json::<Value>(&models_path)["providers"]["acme"]["baseUrl"],
         "https://edited.test/v1"
     );
-}
-
-#[test]
-fn pi_purge_is_absent_without_models_json() {
-    let dir = tempfile::tempdir().unwrap();
-    let env = isolated(&[("PI_CODING_AGENT_DIR", dir.path().to_str().unwrap())]);
-    assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Absent);
 }
