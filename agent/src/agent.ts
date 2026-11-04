@@ -11,6 +11,7 @@ import { installHooks, isHookContext } from "./hooks.ts";
 import type { HookConfiguration } from "./hook-types.ts";
 import { transportDiagnostics } from "./transport-errors.ts";
 import { retryControl, retryStream } from "./retry.ts";
+import { mcpStreamOptions } from "./mcp.ts";
 
 export function systemPrompt(cwd: string, now: Date = new Date()): { prompt: string; commands: SkillCommand[] } {
   const sections = [
@@ -60,7 +61,7 @@ export function createRxAgent(options: RxAgentOptions): Agent {
   const agent = new Agent({
     streamFn: (model, context, streamOptions) => retryStream(
       model, context, streamOptions,
-      (selected, input, requestOptions) => options.models.streamSimple(selected, input, transport.streamOptions(selected.api, fastStreamOptions(selected, { ...requestOptions, onResponse: options.onResponse, onProviderStreamEvent: options.onProviderStreamEvent }, options.fast?.() === true))),
+      (selected, input, requestOptions) => options.models.streamSimple(selected, input, transport.streamOptions(selected.api, fastStreamOptions(selected, mcpStreamOptions(selected, input, { ...requestOptions, onResponse: options.onResponse, onProviderStreamEvent: options.onProviderStreamEvent }), options.fast?.() === true))),
       transport.takeFailure,
       (message) => { options.log.append("model", message); agent.state.messages.push(message); options.onUsage?.(message); },
       (event) => retryControl(agent).emit(event),
