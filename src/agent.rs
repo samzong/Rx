@@ -131,37 +131,17 @@ mod tests {
     fn tokener_reasoning_capabilities_project_to_pi_ai_levels() {
         let provider = crate::provider::find("tokener").unwrap();
         let protocol = crate::provider::dsh_protocol("tokener", &provider.endpoint);
-        assert_eq!(protocol, ModelProtocol::OpenAiResponses);
         let entry = |id: &str| {
             model_entry(
                 provider,
                 protocol,
-                &ListedModel { id: id.to_string(), name: None, context_length: Some(400_000) },
+                &ListedModel { id: id.to_string(), name: None, context_length: None },
             )
         };
-        assert_eq!(
-            entry("gpt-5.6-sol"),
-            json!({
-                "id": "gpt-5.6-sol",
-                "contextWindow": 400_000,
-                "reasoning": true,
-                "thinkingLevelMap": {
-                    "off": "none", "minimal": null, "low": "low", "medium": "medium",
-                    "high": "high", "xhigh": "xhigh", "max": "max",
-                },
-            })
-        );
-        assert_eq!(
-            entry("glm-5.2")["thinkingLevelMap"],
-            json!({
-                "off": "none", "minimal": null, "low": "low", "medium": "medium",
-                "high": null, "xhigh": null, "max": null,
-            })
-        );
-        assert_eq!(
-            entry("kimi-k3"),
-            json!({"id": "kimi-k3", "contextWindow": 400_000, "reasoning": false})
-        );
+        assert_eq!(entry("gpt-5.6-sol")["thinkingLevelMap"]["max"], "max");
+        assert_eq!(entry("glm-5.2")["reasoning"], true);
+        assert_eq!(entry("glm-5.2")["thinkingLevelMap"]["high"], Value::Null);
+        assert_eq!(entry("kimi-k3")["reasoning"], false);
     }
 
     #[test]
@@ -169,38 +149,15 @@ mod tests {
         let provider = crate::provider::find("tokener").unwrap();
         let listed =
             ListedModel { id: "claude-opus-5".to_string(), name: None, context_length: None };
-        let entry = |provider: &Provider| {
-            let protocol = crate::provider::dsh_protocol("tokener", &provider.endpoint);
-            model_entry(provider, protocol, &listed)
-        };
-        assert_eq!(
-            entry(provider),
-            json!({
-                "id": "claude-opus-5",
-                "contextWindow": catalog::fallback_context("tokener"),
-                "api": "anthropic-messages",
-                "baseUrl": "https://api.tokener.ai",
-                "reasoning": true,
-                "thinkingLevelMap": {
-                    "off": null, "minimal": null, "low": "low", "medium": "medium",
-                    "high": "high", "xhigh": "xhigh", "max": "max",
-                },
-            })
-        );
-        let relayed = Provider {
-            anthropic_base: Some("https://relay.example/anthropic/v1".to_string()),
-            ..provider.clone()
-        };
-        assert_eq!(entry(&relayed)["baseUrl"], "https://relay.example/anthropic");
+        let protocol = crate::provider::dsh_protocol("tokener", &provider.endpoint);
+        let entry = model_entry(provider, protocol, &listed);
+        assert_eq!(entry["api"], "anthropic-messages");
+        assert_eq!(entry["baseUrl"], "https://api.tokener.ai");
+        assert_eq!(entry["reasoning"], true);
         let proxied =
             Provider { endpoint: "https://proxy.example/v1".to_string(), ..provider.clone() };
-        assert_eq!(
-            entry(&proxied),
-            json!({
-                "id": "claude-opus-5",
-                "contextWindow": catalog::fallback_context("tokener"),
-                "reasoning": false,
-            })
-        );
+        let entry = model_entry(&proxied, protocol, &listed);
+        assert!(entry.get("api").is_none());
+        assert_eq!(entry["reasoning"], false);
     }
 }

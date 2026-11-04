@@ -14,8 +14,6 @@ mod permissions;
 
 use crate::config::{AuthMode, Paths};
 use crate::provider::{Provider, Setup};
-#[cfg(test)]
-pub(crate) use claude::{inject_claude_generated_seeded, inject_claude_openrouter};
 pub(crate) use permissions::yolo_enabled;
 
 #[derive(Debug, Clone, Default)]

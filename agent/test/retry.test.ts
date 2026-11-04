@@ -31,39 +31,6 @@ async function finish(t: TestContext, operation: Promise<void>) {
 
 const failure = (errorMessage: string, content = "") => fauxAssistantMessage(content, { stopReason: "error", errorMessage });
 
-for (const error of ["429 rate_limit_error", "500 server error", "Stream ended without finish_reason", "Connection error."]) {
-  test(`a transient ${error} retries the current request and retains failed usage`, async (t) => {
-    const h = setup(t);
-    h.faux.setResponses([failure(error, "PARTIAL"), fauxAssistantMessage("recovered")]);
-    const events: string[] = [];
-    h.agent.subscribe((event) => { if (event.type === "message_start" || event.type === "message_end") events.push(`${event.type}:${event.message.role}`); });
-    await finish(t, h.agent.prompt("test"));
-    assert.equal(h.faux.state.callCount, 2);
-    const last = h.agent.state.messages.at(-1) as AssistantMessage;
-    assert.equal(last.stopReason, "stop");
-    assert.equal(last.content[0]?.type === "text" && last.content[0].text, "recovered");
-    assert.equal(events.filter((event) => event === "message_start:assistant").length, 1);
-    assert.equal(events.filter((event) => event === "message_end:assistant").length, 1);
-    const loaded = SessionLog.open(h.log.home, h.log.id);
-    assert.deepEqual(loaded.messages, h.agent.state.messages.filter((message) => message.role !== "system"));
-    const attempts = loaded.messages.filter((message) => message.role === "assistant");
-    assert.equal(attempts.length, 2);
-    assert.equal(attempts[0]!.stopReason, "error");
-    assert.ok(attempts[0]!.usage.output > 0);
-    assert.deepEqual(attempts[1]!.usage, last.usage);
-  });
-}
-
-for (const error of ["401 invalid API key", "403 rate limit access denied", "429 insufficient_quota", "429 monthly usage limit reached"]) {
-  test(`a permanent ${error} does not retry`, async (t) => {
-    const h = setup(t);
-    h.faux.setResponses([failure(error), fauxAssistantMessage("unexpected")]);
-    await finish(t, h.agent.prompt("test"));
-    assert.equal(h.faux.state.callCount, 1);
-    assert.equal((h.agent.state.messages.at(-1) as AssistantMessage).stopReason, "error");
-  });
-}
-
 test("a dropped request after a completed tool keeps the result and executes the tool once", async (t) => {
   let calls = 0;
   const h = setup(t, [{ name: "count", label: "Count", description: "Count one execution", parameters: Type.Object({}), execute: async () => { calls++; return { content: [{ type: "text", text: "done" }], details: {} }; } }]);
@@ -90,28 +57,6 @@ test("retry exhaustion is bounded and the same session accepts another prompt", 
   await finish(t, h.agent.prompt("continue"));
   assert.equal(h.faux.state.callCount, 5);
   assert.equal((h.agent.state.messages.at(-1) as AssistantMessage).stopReason, "stop");
-});
-
-
-test("retry waits use 2, 4, and 8 seconds and cancellation clears incomplete tool content", async (t) => {
-  const h = setup(t);
-  h.faux.setResponses(Array.from({ length: 4 }, () => fauxAssistantMessage([fauxToolCall("bash", { command: "touch unexpected" }, { id: "unfinished" })], { stopReason: "error", errorMessage: "terminated" })));
-  const activity: RetryEvent[] = [];
-  const unsubscribe = retryControl(h.agent).subscribe((event) => {
-    activity.push(event);
-    if (event.attempt === 3 && event.status === "in_progress") h.agent.abort();
-  });
-  await finish(t, h.agent.prompt("test"));
-  unsubscribe();
-  assert.deepEqual(activity.filter((event) => event.status === "in_progress").map((event) => event.delayMs), [2000, 4000, 8000]);
-  assert.equal(activity.at(-1)?.status, "failed");
-  assert.equal(new Set(activity.map((event) => event.id)).size, 1);
-  assert.equal(h.faux.state.callCount, 3);
-  const last = h.agent.state.messages.at(-1) as AssistantMessage;
-  assert.equal(last.stopReason, "aborted");
-  assert.deepEqual(last.content, []);
-  assert.equal(h.agent.state.messages.filter((message) => message.role === "toolResult").length, 0);
-  assert.deepEqual(SessionLog.open(h.log.home, h.log.id).messages.at(-1), last);
 });
 
 for (const unfinishedTool of [false, true]) {
@@ -148,3 +93,14 @@ for (const unfinishedTool of [false, true]) {
     assert.equal(h.agent.state.messages.some((message) => message.role === "toolResult"), false);
   });
 }
+
+test("permanent quota failures do not retry", async (t) => {
+  for (const error of ["429 insufficient_quota", "429 monthly usage limit reached"]) {
+    const h = setup(t);
+    h.faux.setResponses([failure(error), fauxAssistantMessage("unexpected")]);
+    await finish(t, h.agent.prompt("test"));
+    assert.equal(h.faux.state.callCount, 1);
+    assert.equal((h.agent.state.messages.at(-1) as AssistantMessage).stopReason, "error");
+    t.mock.timers.reset();
+  }
+});

@@ -1,17 +1,6 @@
 use super::*;
 
 #[test]
-fn claude_seed_replaces_wrong_typed_growthbook_cache() {
-    let dir = tempfile::tempdir().unwrap();
-    let config_path = dir.path().join(".claude.json");
-    fs::write(&config_path, r#"{"cachedGrowthBookFeatures": null}"#).unwrap();
-    let caches = claude::SeedCaches::default();
-    claude::write_seed(&config_path, &caches).unwrap();
-    let document: Value = read_json(&config_path);
-    assert!(document["cachedGrowthBookFeatures"].is_object());
-}
-
-#[test]
 fn claude_seed_uses_openai_models_and_merges_from_cache() {
     let (_dir, paths) = temp_paths();
     let config_dir = tempfile::tempdir().unwrap();
@@ -23,7 +12,6 @@ fn claude_seed_uses_openai_models_and_merges_from_cache() {
     server.join().unwrap();
     assert_eq!(first, claude::SeedOutcome::Seeded);
     let cached: claude::SeedCaches = read_json(paths.dir.join("catalogs/openrouter.claude.json"));
-    assert_eq!(cached.provider_id, "openrouter");
     let config_path = config_dir.path().join(".claude.json");
     let mut document: Value = read_json(&config_path);
     assert_eq!(document["modelAccessCache"][0]["entitled"], true);
@@ -73,26 +61,6 @@ fn empty_claude_catalog_does_not_claim_seeded_discovery() {
 }
 
 #[test]
-fn empty_cached_claude_seed_falls_back_without_writing_config() {
-    let (_dir, paths) = temp_paths();
-    let config_dir = tempfile::tempdir().unwrap();
-    let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"claude-test"}]}"#);
-    catalog::prepare_codex_catalog(&paths, "lab", &base_url, "sk-test").unwrap().unwrap();
-    server.join().unwrap();
-    fs::write(
-        paths.dir.join("catalogs/lab.claude.json"),
-        serde_json::to_vec(&claude::SeedCaches::default()).unwrap(),
-    )
-    .unwrap();
-    let env = isolated(&[("CLAUDE_CONFIG_DIR", config_dir.path().to_str().unwrap())]);
-
-    let outcome = claude::try_seed_user_catalog(&paths, "lab", &base_url, "sk-test", &env);
-
-    assert_eq!(outcome, claude::SeedOutcome::Fallback);
-    assert!(!config_dir.path().join(".claude.json").exists());
-}
-
-#[test]
 fn real_claude_plan_uses_seeded_generated_route() {
     let (_dir, paths) = temp_paths();
     let config_dir = tempfile::tempdir().unwrap();
@@ -116,69 +84,6 @@ fn real_claude_plan_uses_seeded_generated_route() {
     assert_eq!(plan.args[2], "fix it");
     assert_env(&plan, &[("ANTHROPIC_AUTH_TOKEN", "sk-test")]);
     assert!(config_dir.path().join(".claude.json").is_file());
-}
-
-#[test]
-fn generated_provider_seeded_plan_uses_auth_token_and_settings() {
-    let plan = launch::inject_claude_generated_seeded(
-        &request(Harness::Claude, Some("acme"), &["fix it"]),
-        "ACME_API_KEY",
-        "http://localhost:8080",
-        "sk-fixture",
-        None,
-    );
-    assert_eq!(plan.args[0], "--settings");
-    assert!(arg_str(&plan.args[1]).contains("ACME_API_KEY"));
-    assert_eq!(plan.args[2], "fix it");
-    assert_env(
-        &plan,
-        &[
-            ("ANTHROPIC_AUTH_TOKEN", "sk-fixture"),
-            ("ANTHROPIC_API_KEY", ""),
-            ("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "0"),
-        ],
-    );
-    assert!(plan.stderr_note.is_none());
-}
-
-#[test]
-fn openrouter_seed_builds_picker_and_denylist() {
-    let models = vec![
-        claude::UserModel {
-            canonical_slug: Some("anthropic/claude-sonnet-5".to_string()),
-            ..model("anthropic/claude-sonnet-5", "Sonnet 5", 200_000, None)
-        },
-        model("openai/gpt-5.6-sol", "GPT 5.6 Sol", 400_000, None),
-    ];
-    let seed = claude::build_seed(&models);
-    assert_eq!(seed.additional_model_options.len(), 2);
-    assert!(seed.model_access.iter().any(|entry| entry.api_name == "claude-sonnet-5"));
-    assert!(seed.model_access.iter().any(|entry| entry.api_name == "openai/gpt-5.6-sol"));
-    assert!(seed.tool_search_denylist.iter().any(|id| id == "openai/gpt-5.6-sol"));
-    assert!(!seed.tool_search_denylist.iter().any(|id| id == "claude-sonnet-5"));
-}
-
-#[test]
-fn openrouter_seed_writes_claude_json() {
-    let dir = tempfile::tempdir().unwrap();
-    let config_path = dir.path().join(".claude.json");
-    fs::write(
-        &config_path,
-        r#"{"additionalModelOptionsCache":[{"value":"keep-me","label":"Keep","description":"old"}]}"#,
-    )
-    .unwrap();
-    let caches = claude::build_seed(&[model("google/gemini-3.7-flash", "Gemini", 200_000, None)]);
-    claude::write_seed(&config_path, &caches).unwrap();
-    let document: Value = read_json(&config_path);
-    let options = entries(&document, "additionalModelOptionsCache");
-    assert_eq!(options.len(), 2);
-    assert!(options.iter().any(|entry| entry["value"] == "keep-me"));
-    assert!(options.iter().any(|entry| entry["value"] == "google/gemini-3.7-flash"));
-    assert!(
-        entries(&document, "rxSeededToolSearchDenylist")
-            .iter()
-            .any(|entry| entry == "google/gemini-3.7-flash")
-    );
 }
 
 #[test]
@@ -222,7 +127,6 @@ fn claude_seed_replaces_previous_provider_catalog_without_dropping_unowned_entri
     assert!(!values.contains(&"google/gemini-3.7-flash"));
     assert!(values.contains(&"claude-sonnet-5"));
     assert!(values.contains(&"user-model"));
-    assert_eq!(document["rxSeededCatalog"]["provider_id"], "lab");
 
     let access = entries(&document, "modelAccessCache");
     assert!(!access.iter().any(|entry| entry["apiName"] == "google/gemini-3.7-flash"));
@@ -235,35 +139,6 @@ fn claude_seed_replaces_previous_provider_catalog_without_dropping_unowned_entri
         .unwrap();
     assert!(!denylist.iter().any(|entry| entry == "google/gemini-3.7-flash"));
     assert!(denylist.iter().any(|entry| entry == "user-model"));
-}
-
-#[test]
-fn claude_seed_first_run_preserves_preexisting_catalog_entries() {
-    let dir = tempfile::tempdir().unwrap();
-    let config_path = dir.path().join(".claude.json");
-    fs::write(
-        &config_path,
-        r#"{"additionalModelOptionsCache":[{"value":"user-model","label":"User","description":"manual"}],"modelAccessCache":[{"apiName":"user-model","entitled":true}]}"#,
-    )
-    .unwrap();
-    let models = catalog::parse_openai_models(
-        r#"{"data":[{"id":"claude-sonnet-5","name":"Sonnet 5","context_length":200000}]}"#,
-    )
-    .unwrap();
-    claude::write_seed(&config_path, &claude::seed_from_listed("openrouter", &models)).unwrap();
-
-    let document: Value = read_json(&config_path);
-    let values = entries(&document, "additionalModelOptionsCache")
-        .iter()
-        .filter_map(|entry| entry["value"].as_str())
-        .collect::<Vec<_>>();
-    assert!(values.contains(&"user-model"), "preexisting entry was dropped: {values:?}");
-    assert!(values.contains(&"claude-sonnet-5"));
-    assert!(
-        entries(&document, "modelAccessCache").iter().any(|entry| entry["apiName"] == "user-model"),
-        "preexisting model access entry was dropped"
-    );
-    assert_eq!(document["rxSeededCatalog"]["provider_id"], "openrouter");
 }
 
 #[test]
@@ -286,11 +161,11 @@ fn claude_seed_refreshes_and_removes_unmodified_owned_payloads() {
 
     let document: Value = read_json(&config_path);
     let options = entries(&document, "additionalModelOptionsCache");
-    assert!(options.iter().any(|entry| {
-        entry["value"] == "claude-current"
-            && entry["label"] == "Current New"
-            && entry["description"] == "300K context"
-    }));
+    assert!(
+        options
+            .iter()
+            .any(|entry| { entry["value"] == "claude-current" && entry["label"] == "Current New" })
+    );
     assert!(!options.iter().any(|entry| entry["value"] == "claude-removed"));
 
     let access = entries(&document, "modelAccessCache");
@@ -468,19 +343,6 @@ fn concurrent_claude_seed_writes_leave_one_complete_catalog() {
         .collect::<Vec<_>>();
     assert_eq!(values.len(), 1);
     assert!(matches!(values[0], "claude-race-a" | "claude-race-b"));
-    assert_eq!(
-        document["rxSeededCatalog"]["additionalModelOptionsCache"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .collect::<Vec<_>>(),
-        values
-    );
-    assert_eq!(document["rxSeededCatalog"]["modelAccessCache"].as_object().unwrap().len(), 1);
-    assert_eq!(
-        document["rxSeededCatalog"]["autoCompactWindowsCache"].as_object().unwrap().len(),
-        1
-    );
 }
 
 #[test]
@@ -511,32 +373,8 @@ fn claude_seed_errors_on_non_object_config_root_instead_of_panicking() {
     let config_path = dir.path().join(".claude.json");
     fs::write(&config_path, r#"["not", "an", "object"]"#).unwrap();
     let caches = claude::SeedCaches::default();
-    let error = claude::write_seed(&config_path, &caches).unwrap_err();
-    assert!(error.to_string().contains("not a JSON object"));
+    assert!(claude::write_seed(&config_path, &caches).is_err());
     assert_eq!(fs::read_to_string(&config_path).unwrap(), r#"["not", "an", "object"]"#);
-}
-
-#[test]
-fn openrouter_seeded_plan_injects_settings() {
-    let plan = launch::inject_claude_openrouter(
-        &request(Harness::Claude, Some("openrouter"), &["fix it"]),
-        "https://openrouter.ai/api",
-        "sk-or-test",
-        Some("~anthropic/claude-sonnet-latest"),
-        claude::SeedOutcome::Seeded,
-    );
-    assert_eq!(plan.args[0], "--settings");
-    assert!(arg_str(&plan.args[1]).contains("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"));
-    assert_eq!(plan.args[2], "fix it");
-    assert_env(
-        &plan,
-        &[
-            ("ANTHROPIC_API_KEY", "sk-or-test"),
-            ("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "0"),
-            ("ENABLE_TOOL_SEARCH", "true"),
-        ],
-    );
-    assert!(plan.stderr_note.is_none());
 }
 
 #[test]

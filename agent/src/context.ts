@@ -12,7 +12,7 @@ import { CitationError, mergeSources, sourceLabel, validateSummarySources } from
 import type { SourceRange } from "./context-source.ts";
 import { textTokens, total } from "./context-messages.ts";
 export { MAX_SUMMARY_CALLS, contextBudget } from "./context-plan.ts";
-export { textTokens, messageTokens, visibleMessage } from "./context-messages.ts";
+export { messageTokens } from "./context-messages.ts";
 
 class SummaryBudgetError extends Error {}
 

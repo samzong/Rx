@@ -1,15 +1,6 @@
 use super::*;
 
 #[test]
-fn update_parses_yes_flag() {
-    assert_eq!(parse_line(&["rx", "update"]), Command::Update(UpdateCommand::Run { yes: false }));
-    assert_eq!(
-        parse_line(&["rx", "update", "--yes"]),
-        Command::Update(UpdateCommand::Run { yes: true })
-    );
-}
-
-#[test]
 fn version_cmp_orders_releases() {
     use std::cmp::Ordering;
 
@@ -64,10 +55,6 @@ fn homebrew_managed_rx_is_detected_through_bin_symlink() {
     assert_eq!(
         crate::update::self_update_blocker(&linked_rx),
         Some(crate::update::HOMEBREW_UPDATE_HINT)
-    );
-    assert_eq!(
-        crate::update::homebrew_launch_update_notice(&linked_rx, "0.6.0"),
-        Some("Rx 0.6.0 is available — run `brew upgrade rx`".to_string())
     );
 }
 

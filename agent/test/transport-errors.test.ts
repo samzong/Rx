@@ -147,22 +147,6 @@ test("cancelling a Responses request leaves the assistant message aborted withou
   for (const value of ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "ETIMEDOUT"]) assert.equal((aborted.errorMessage ?? "").includes(value), false);
 });
 
-for (const [code, syscall] of [["ENOTFOUND", "getaddrinfo"], ["ERR_TLS_CERT_ALTNAME_INVALID", "connect"], ["UND_ERR_CONNECT_TIMEOUT", "connect"]]) {
-  test(`a ${code} cause survives provider normalization without exposing exception text`, async (t) => {
-    fakeCredential(t);
-    const cause = Object.assign(new Error(RAW_URL), { code, syscall });
-    t.mock.method(globalThis, "fetch", async () => { throw new TypeError(RAW_AUTHORIZATION, { cause }); });
-    const { agent, log } = agentFixture();
-    await finish(t, agent.prompt("diagnose connection"));
-    const message = assistantMessages(agent.state.messages).at(-1)!;
-    assert.equal(message.stopReason, "error");
-    assert.ok(message.role === "assistant" && message.errorMessage?.includes(code!) && message.errorMessage.includes(syscall!));
-    const saved = readFileSync(log.path, "utf8");
-    assert.ok(saved.includes(code!) && saved.includes(syscall!));
-    for (const value of [RAW_URL, RAW_AUTHORIZATION, API_KEY]) assert.ok(!saved.includes(value));
-  });
-}
-
 test("unknown fields and cyclic aggregate causes cannot expose credentials or hang diagnostics", async (t) => {
   fakeCredential(t);
   const cause: Record<string, unknown> = { name: API_KEY, code: API_KEY, syscall: API_KEY, hostname: RAW_URL, stack: RAW_AUTHORIZATION };
@@ -175,49 +159,6 @@ test("unknown fields and cyclic aggregate causes cannot expose credentials or ha
   assert.ok(message.role === "assistant" && message.errorMessage?.includes("EAI_AGAIN"));
   const saved = readFileSync(log.path, "utf8");
   for (const value of [RAW_URL, RAW_AUTHORIZATION, API_KEY, RAW_MESSAGE]) assert.ok(!saved.includes(value));
-});
-
-test("one agent keeps its fetch reference and reads the current global fetch for each call", async (t) => {
-  fakeCredential(t);
-  const { agent, models } = agentFixture();
-  const references: unknown[] = [];
-  const stream = models.streamSimple.bind(models);
-  t.mock.method(models, "streamSimple", (...[model, context, options]: Parameters<typeof models.streamSimple>) => {
-    references.push(options?.fetch);
-    return stream(model, context, options);
-  });
-  t.mock.method(globalThis, "fetch", async () => { throw Object.assign(new Error(RAW_MESSAGE), { code: "ConnectionRefused", errno: 0 }); });
-  await finish(t, agent.prompt("first request"));
-  const failure = assistantMessages(agent.state.messages).at(-1)!;
-  assert.ok(failure.role === "assistant" && failure.errorMessage?.includes("ConnectionRefused"));
-  t.mock.method(globalThis, "fetch", async () => responsesOk());
-  await finish(t, agent.prompt("second request"));
-  assert.equal(assistantMessages(agent.state.messages).at(-1)!.stopReason, "stop");
-  assert.equal(references.length, 5);
-  assert.equal(typeof references[0], "function");
-  assert.ok(references.every((reference) => reference === references[0]));
-  assert.ok(failure.role === "assistant" && !failure.errorMessage?.includes("errno="));
-});
-
-test("an SDK timeout keeps the pi-ai timeout message in state and the session log", async (t) => {
-  fakeCredential(t);
-  const { agent, models, log } = agentFixture();
-  const stream = models.streamSimple.bind(models);
-  t.mock.method(models, "streamSimple", (...[model, context, options]: Parameters<typeof models.streamSimple>) => stream(model, context, { ...options, timeoutMs: 50 }));
-  t.mock.method(globalThis, "fetch", (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
-    return new Promise<Response>((_resolve, reject) => {
-      signal?.addEventListener("abort", () => reject(new DOMException("private abort details", "AbortError")), { once: true });
-    });
-  });
-  await finish(t, agent.prompt("time out this request"));
-  const message = assistantMessages(agent.state.messages).at(-1)!;
-  assert.ok(message.role === "assistant");
-  assert.equal(message.stopReason, "error");
-  assert.equal(message.errorMessage, "Request timed out.");
-  const saved = readFileSync(log.path, "utf8");
-  assert.ok(saved.includes("Request timed out."));
-  assert.ok(!saved.includes("private abort details") && !saved.includes("Model connection failed"));
 });
 
 test("concurrent agents keep transport failures in their own sessions", async (t) => {

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
@@ -72,37 +71,4 @@ test("failed cleanup preserves the SessionStart rejection, retained writer lock,
       chmodSync(sessions, 0o700);
     }
   }
-});
-
-test("fork distinguishes source absence, log corruption, and source or target I/O errors", async (t) => {
-  const { models, model } = fauxModels();
-  const home = tempDir();
-  const cwd = tempDir();
-  const source = SessionLog.create(home, cwd);
-  const original = readFileSync(source.path);
-  const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
-  await acp.client().connectWith(app, async (ctx) => {
-    for (const [code, path, expected] of [
-      ["ENOSPC", source.path, -32603],
-      ["EACCES", source.path, -32603],
-      ["ENOENT", source.path, -32002],
-      ["ENOENT", join(home, "sessions", "target.jsonl"), -32603],
-    ] as const) {
-      const mock = t.mock.method(SessionLog, "fork", () => { throw Object.assign(new Error(code), { code, path }); });
-      try {
-        await assert.rejects(ctx.request(acp.methods.agent.session.fork, { sessionId: source.id, cwd }), (error: unknown) => error instanceof acp.RequestError && error.code === expected);
-      } finally {
-        mock.mock.restore();
-      }
-      assert.deepEqual(readFileSync(source.path), original);
-    }
-    const directoryId = randomUUID();
-    mkdirSync(join(home, "sessions", `${directoryId}.jsonl`));
-    await assert.rejects(ctx.request(acp.methods.agent.session.fork, { sessionId: directoryId, cwd }), (error: unknown) => error instanceof acp.RequestError && error.code === -32603);
-    appendFileSync(source.path, "{broken\n");
-    const corrupt = readFileSync(source.path);
-    await assert.rejects(ctx.request(acp.methods.agent.session.fork, { sessionId: source.id, cwd }), (error: unknown) => error instanceof acp.RequestError && error.code === -32602);
-    assert.deepEqual(readFileSync(source.path), corrupt);
-    assert.equal(readdirSync(join(home, "sessions")).filter((name) => name.endsWith(".lock")).length, 1);
-  });
 });

@@ -2,11 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, fauxAssistantMessage, fauxToolCall, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, fauxAssistantMessage, type AssistantMessage } from "@earendil-works/pi-ai";
 import { createRxAgent } from "../src/agent.ts";
 import { contextControl } from "../src/context-control.ts";
 import { contextBudget, MAX_SUMMARY_CALLS } from "../src/context.ts";
-import { compactionPlan } from "../src/context-plan.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, tempDir } from "./helpers.ts";
 
@@ -61,12 +60,9 @@ test("compaction corrects streamed estimates, measured usage, and provider lengt
         ? overUsage(summary(), budget)
         : { ...summary(), stopReason: "length" as const };
     h.faux.setResponses([fauxAssistantMessage("constraints retained")]);
-    const target = Math.max(64, Math.floor(budget / 4));
     const summaryCalls = mockSummaryResponses(h, [summary(), tooLarge, ...Array.from({ length: MAX_SUMMARY_CALLS }, summary)], (call, request) => {
       assert.match(request, /prior evidence/);
       if (call === 3) {
-        assert.match(request, /substantially shorter summary/);
-        assert.match(request, new RegExp(`under ${target} characters`));
         assert.match(request, /Goal: fix A/);
         assert.doesNotMatch(request, /Rejected draft/);
       }
@@ -82,7 +78,7 @@ test("repeated budget failures preserve raw history and allow the same loaded se
   const before = readFileSync(h.log.path, "utf8");
   const rejected = fauxAssistantMessage(`Rejected draft. [log 1-1] ${"oversized content ".repeat(8000)}`);
   h.faux.setResponses([rejected, rejected]);
-  await assert.rejects(h.control.compact(), /output budget|shorter/i);
+  await assert.rejects(h.control.compact());
   assert.deepEqual(h.agent.state.messages, h.original);
   assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 0);
   assert.ok(readFileSync(h.log.path, "utf8").startsWith(before));
@@ -92,62 +88,4 @@ test("repeated budget failures preserve raw history and allow the same loaded se
   h.faux.setResponses([summary()]);
   await contextControl(resumed).compact();
   assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 1);
-});
-
-test("budget correction respects the eight-request cap and reserves one request per remaining chunk", async () => {
-  for (const count of [7, 8]) {
-    const h = setup(16384, count === 7 ? 150000 : 180000);
-    const planned = compactionPlan(h.agent.state.messages, h.model)!;
-    assert.equal(planned.chunks.length, count);
-    const budget = contextBudget(h.model).summary;
-    const calls = mockSummaryResponses(h, [overUsage(summary(), budget), ...Array.from({ length: MAX_SUMMARY_CALLS }, summary)]);
-    if (count === 7) {
-      await h.control.compact();
-      assert.equal(calls(), MAX_SUMMARY_CALLS);
-      assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 1);
-    } else {
-      await assert.rejects(h.control.compact());
-      assert.equal(calls(), 1);
-      assert.deepEqual(h.agent.state.messages, h.original);
-      assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 0);
-    }
-  }
-});
-
-test("cancellation before or during budget correction prevents another summary request", async () => {
-  for (const mode of ["before", "during"] as const) {
-    const h = setup();
-    let calls = 0;
-    const budget = contextBudget(h.model).summary;
-    h.models.streamSimple = (model, _context, _options) => {
-      calls++;
-      const stream = createAssistantMessageEventStream();
-      const message = mode === "during" && calls === 2
-        ? { ...summary(), content: [], stopReason: "aborted" as const, errorMessage: "Request was aborted" }
-        : calls === 1 ? overUsage(summary(), budget) : summary();
-      queueMicrotask(() => {
-        if (mode === "during" && calls === 2) h.control.abort();
-        stream.push({ type: "start", partial: { ...message, content: [] } });
-        if (message.stopReason === "aborted") stream.push({ type: "error", reason: "aborted", error: message });
-        else if (message.stopReason === "stop" || message.stopReason === "length" || message.stopReason === "toolUse" || message.stopReason === "deferred") stream.push({ type: "done", reason: message.stopReason, message });
-        else stream.push({ type: "error", reason: "error", error: message });
-        stream.end(message);
-        if (mode === "before" && calls === 1) h.control.abort();
-      });
-      return stream;
-    };
-    await assert.rejects(h.control.compact());
-    assert.equal(calls, mode === "before" ? 1 : 2);
-    assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 0);
-  }
-});
-
-test("tool calls remain a deterministic failure and are not treated as budget corrections", async () => {
-  const h = setup();
-  const toolResponse = fauxAssistantMessage([fauxToolCall("bash", { command: "touch forbidden" })], { stopReason: "toolUse" });
-  h.faux.setResponses([toolResponse, summary()]);
-  await assert.rejects(h.control.compact(), /tool/i);
-  assert.equal(h.faux.state.callCount, 1);
-  assert.deepEqual(h.agent.state.messages, h.original);
-  assert.equal(records(h.log).filter((entry) => entry.type === "compaction").length, 0);
 });

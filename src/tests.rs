@@ -21,8 +21,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::args::{
-    Command, CompletionShell, CompletionsCommand, Harness, LaunchRequest, ProviderIdFilter,
-    ProvidersCommand, UpdateCommand, parse, rewrite_argv0,
+    Command, Harness, LaunchRequest, ProviderIdFilter, ProvidersCommand, parse, rewrite_argv0,
 };
 use serde_json::{Value, json};
 

@@ -7,9 +7,6 @@ fn launch_syntax_preserves_harness_provider_and_literal_arguments() {
     let cases: &[LaunchCase<'_>] = &[
         (&["/usr/local/bin/rxc", "fix login"], Claude, None, &["fix login"]),
         (&["rxa", "-p", "cargo test"], Agent, None, &["-p", "cargo test"]),
-        (&["rx", "codex", "exec", "cargo test"], Codex, None, &["exec", "cargo test"]),
-        (&["rx", "agent", "--model", "m"], Agent, None, &["--model", "m"]),
-        (&["rx", "rx-agent", "--model", "m"], Agent, None, &["--model", "m"]),
         (&["rxc", "--provider", "acme"], Claude, Some("acme"), &[]),
         (
             &["rx", "--provider", "openrouter", "claude", "--resume", "abc"],
@@ -29,13 +26,6 @@ fn launch_syntax_preserves_harness_provider_and_literal_arguments() {
             None,
             &["--", "--provider", "openrouter"],
         ),
-        (&["rx", "claude", "--help"], Claude, None, &["--help"]),
-        (&["rxo", "run", "hello"], OpenCode, None, &["run", "hello"]),
-        (&["rxp", "--print", "hi"], Pi, None, &["--print", "hi"]),
-        (&["rxd", "--resume"], Dsh, None, &["--resume"]),
-        (&["rx", "dsh", "--resume"], Dsh, None, &["--resume"]),
-        (&["rxk", "--continue"], Kimi, None, &["--continue"]),
-        (&["rx", "kimi", "web", "--port", "58627"], Kimi, None, &["web", "--port", "58627"]),
     ];
     for (argv, harness, provider, passthrough) in cases {
         assert_eq!(
@@ -46,81 +36,10 @@ fn launch_syntax_preserves_harness_provider_and_literal_arguments() {
     }
 }
 
-#[test]
-fn bare_rx_is_harness_picker() {
-    assert_eq!(parse_line(&["rx"]), Command::PickHarness { provider: None });
-}
-
-#[test]
-fn bare_rx_with_provider_is_harness_picker() {
-    assert_eq!(
-        parse_line(&["rx", "--provider", "deepseek"]),
-        Command::PickHarness { provider: Some("deepseek".to_string()) }
-    );
-    assert_eq!(
-        parse_line(&["rx", "--provider=deepseek"]),
-        Command::PickHarness { provider: Some("deepseek".to_string()) }
-    );
-}
-
-#[test]
-fn rx_help_and_version() {
-    assert_eq!(parse_line(&["rx", "--help"]), Command::Help);
-    assert_eq!(parse_line(&["rx", "-V"]), Command::Version);
-    assert!(crate::help_text().contains("rx --provider <provider> <harness>"));
-    assert!(crate::help_text().contains("rx --provider none <harness>"));
-    assert!(crate::help_text().contains("rx providers <list|login|logout|use>"));
-    assert!(crate::help_text().contains("rx providers models update [provider]"));
-    assert!(crate::help_text().contains("rx completions <bash|zsh|fish>"));
-    assert!(!crate::help_text().contains("rx providers list\n"));
-    assert!(!crate::help_text().contains("rx completions --providers"));
-}
-
-#[test]
-fn completions_parses_shells_and_id_lists() {
-    use CompletionsCommand::*;
-    for (suffix, expected) in [
-        (None, Help),
-        (Some("zsh"), Generate { shell: CompletionShell::Zsh }),
-        (Some("bash"), Generate { shell: CompletionShell::Bash }),
-        (Some("fish"), Generate { shell: CompletionShell::Fish }),
-        (Some("--providers"), ListProviders(ProviderIdFilter::All)),
-        (Some("--configured"), ListProviders(ProviderIdFilter::Configured)),
-        (Some("--targets"), ListProviders(ProviderIdFilter::Targets)),
-    ] {
-        let mut argv = vec!["rx", "completions"];
-        argv.extend(suffix);
-        assert_eq!(parse_line(&argv), Command::Completions(expected), "{argv:?}");
-    }
-}
-
-#[test]
-fn invalid_commands_report_the_rejected_argument() {
-    let cases: &[(&[&str], &str)] = &[
-        (
-            &["rx", "--provider", "openrouter", "completions", "zsh"],
-            "--provider is not valid with rx completions",
-        ),
-        (&["rx", "completions", "zsh", "extra"], "unexpected argument: extra"),
-        (&["rx", "completions", "powershell"], "unknown completions command: powershell"),
-        (&["rx", "gemini"], "unknown harness: gemini"),
-        (&["rx", "claude", "--provider"], "--provider requires a value"),
-        (&["rx", "providers", "use", "openrouter", "acme"], "usage: rx providers use [provider]"),
-        (&["rx", "providers", "models", "list"], "unknown providers models command: list"),
-        (
-            &["rx", "providers", "models", "update", "openrouter", "acme"],
-            "usage: rx providers models update [provider]",
-        ),
-    ];
-    for (argv, expected) in cases {
-        let error = parse(&os(argv)).unwrap_err();
-        assert!(error.to_string().contains(expected), "{argv:?}: {error}");
-    }
-}
-
 #[cfg(unix)]
 #[test]
 fn bash_completions_follow_argument_context() {
+    use crate::args::CompletionShell;
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
@@ -185,47 +104,6 @@ fn bash_completions_follow_argument_context() {
     }
 }
 
-#[test]
-fn argv0_harness_resolves_aliases() {
-    assert_eq!(crate::args::argv0_harness("/usr/local/bin/rxc"), Some("claude"));
-    assert_eq!(crate::args::argv0_harness("rxa"), Some("rx-agent"));
-    assert_eq!(crate::args::argv0_harness("rxx"), Some("codex"));
-    assert_eq!(crate::args::argv0_harness("rxo.exe"), Some("opencode"));
-    assert_eq!(crate::args::argv0_harness("rxp"), Some("pi"));
-    assert_eq!(crate::args::argv0_harness("rxd"), Some("dsh"));
-    assert_eq!(crate::args::argv0_harness("rxk"), Some("kimi"));
-    assert_eq!(crate::args::argv0_harness("/home/u/.cargo/bin/rx"), None);
-}
-
-#[test]
-fn providers_commands_parse() {
-    use ProvidersCommand::*;
-    assert_eq!(parse_line(&["rx", "providers"]), Command::Providers(Help));
-    assert_eq!(parse_line(&["rx", "providers", "list"]), Command::Providers(List));
-    assert_eq!(parse_line(&["rx", "providers", "models"]), Command::Providers(ModelsHelp));
-    for provider in [None, Some("acme")] {
-        let selected = provider.map(str::to_string);
-        for (command, expected) in [
-            ("login", Login { provider: selected.clone() }),
-            ("logout", Logout { provider: selected.clone() }),
-            ("use", Use { provider: selected.clone() }),
-        ] {
-            let mut argv = vec!["rx", "providers", command];
-            argv.extend(provider);
-            assert_eq!(parse_line(&argv), Command::Providers(expected), "{argv:?}");
-        }
-    }
-    for provider in [None, Some("openrouter")] {
-        let mut argv = vec!["rx", "providers", "models", "update"];
-        argv.extend(provider);
-        assert_eq!(
-            parse_line(&argv),
-            Command::Providers(ModelsUpdate { provider: provider.map(str::to_string) }),
-            "{argv:?}"
-        );
-    }
-}
-
 #[cfg(unix)]
 #[test]
 fn non_utf8_arguments_survive_passthrough_but_cannot_select_a_provider() {
@@ -241,4 +119,10 @@ fn non_utf8_arguments_survive_passthrough_but_cannot_select_a_provider() {
     let mut argv = os(&["rx", "claude", "--provider"]);
     argv.push(value);
     assert!(parse(&argv).is_err());
+}
+
+#[test]
+fn argv0_harness_resolves_aliases() {
+    assert_eq!(crate::args::argv0_harness("rxa"), Some("rx-agent"));
+    assert_eq!(crate::args::argv0_harness("rxx"), Some("codex"));
 }

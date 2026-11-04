@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import { test } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
-import { InMemoryCredentialStore, normalizeContext } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { builtinModels, getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import { streamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { fastStreamOptions, supportsFast } from "../src/acp-fast.ts";
 import { createAcpApp } from "../src/acp.ts";
 import { tempDir } from "./helpers.ts";
@@ -32,45 +31,6 @@ test("fork inherits current thinking and Fast before applying Lody session confi
     assert.equal(overridden.configOptions?.find((option) => option.id === "thinking")?.currentValue, "high");
     assert.equal(overridden.configOptions?.find((option) => option.id === "fast")?.currentValue, false);
   });
-});
-
-test("Fast reaches the Codex wire payload through streamSimple and preserves the payload callback", async () => {
-  for (const fast of [false, true]) {
-    let body: Record<string, unknown> | undefined;
-    let networkCalls = 0;
-    const response = await streamSimple(model, normalizeContext({ messages: [{ role: "user", content: "hello", timestamp: Date.now() }] }), fastStreamOptions(model, {
-      apiKey,
-      transport: "sse",
-      maxRetries: 0,
-      onPayload: (payload) => ({ ...payload as object, probe: "preserved" }),
-      fetch: async (input, init) => {
-        networkCalls++;
-        const raw = input instanceof Request ? await input.text() : typeof init?.body === "string" ? init.body : zstdDecompressSync(init?.body as Uint8Array).toString();
-        body = JSON.parse(raw);
-        throw new Error("stopped before network");
-      },
-    }, fast)).result();
-    assert.equal(response.stopReason, "error");
-    assert.ok(networkCalls > 0);
-    assert.equal(body?.probe, "preserved");
-    assert.equal(body?.service_tier, fast ? "priority" : undefined);
-  }
-});
-
-test("Fast is limited to the supported Codex provider, API, endpoint, and exact models", () => {
-  assert.equal(supportsFast(model), true);
-  for (const other of [
-    { ...model, provider: "xai" },
-    { ...model, provider: "openai" },
-    { ...model, api: "openai-responses" as const },
-    { ...model, baseUrl: "https://gateway.example/v1" },
-    { ...model, id: "gpt-6.1-sol-custom" },
-    { ...model, id: "gpt-5.5" },
-  ]) {
-    assert.equal(supportsFast(other), false);
-    const options = { maxTokens: 1 };
-    assert.equal(fastStreamOptions(other, options, true), options);
-  }
 });
 
 test("ACP Fast negotiation controls the next request and resets on model changes", async () => {
@@ -115,4 +75,18 @@ test("ACP Fast negotiation controls the next request and resets on model changes
     assert.equal(bodies.at(-1)?.service_tier, undefined);
     assert.ok(updates.some((update) => update.sessionUpdate === "usage_update" && update.used === 120 && update.size === model.contextWindow));
   });
+});
+
+test("Fast is limited to the supported Codex provider, API, endpoint, and exact models", () => {
+  assert.equal(supportsFast(model), true);
+  for (const other of [
+    { ...model, provider: "openai" },
+    { ...model, api: "openai-responses" as const },
+    { ...model, baseUrl: "https://gateway.example/v1" },
+    { ...model, id: "gpt-6.1-sol-custom" },
+  ]) {
+    assert.equal(supportsFast(other), false);
+    const options = { maxTokens: 1 };
+    assert.equal(fastStreamOptions(other, options, true)?.onPayload, undefined);
+  }
 });

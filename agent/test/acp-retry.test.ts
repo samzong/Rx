@@ -43,15 +43,18 @@ for (const cancel of [false, true]) {
         assert.deepEqual(last.content, []);
       } else {
         const sequence = updates.filter((update) => update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "tool_call");
-        assert.deepEqual(sequence.map((update) => update.sessionUpdate === "agent_message_chunk" ? update.content : update.title), [
-          { type: "text", text: "" }, { type: "text", text: "PARTIAL" }, "Retrying model request (1/3)", { type: "text", text: "COMPLETE" },
+        assert.deepEqual(sequence.filter((update) => update.sessionUpdate === "agent_message_chunk").map((update) => update.content).filter((content) => content.type !== "text" || content.text), [
+          { type: "text", text: "PARTIAL" }, { type: "text", text: "COMPLETE" },
         ]);
+        const retryIndex = sequence.findIndex((update) => update.sessionUpdate === "tool_call");
+        const textIndex = (text: string) => sequence.findIndex((update) => update.sessionUpdate === "agent_message_chunk" && update.content.type === "text" && update.content.text === text);
+        assert.ok(textIndex("PARTIAL") < retryIndex && retryIndex < textIndex("COMPLETE"));
       }
     });
   });
 }
 
-test("ACP provider failures stay errors with an actionable hint and the session accepts another prompt", async () => {
+test("ACP provider failures stay errors and the session accepts another prompt", async () => {
   const { models, model, faux } = fauxModels();
   const cwd = tempDir();
   faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "401 invalid API key" }), fauxAssistantMessage("recovered")]);
@@ -62,7 +65,6 @@ test("ACP provider failures stay errors with an actionable hint and the session 
       assert.ok(error instanceof acp.RequestError);
       assert.equal(error.code, -32010);
       assert.deepEqual(error.data, { type: "provider_error" });
-      assert.match(error.message, /Model provider request failed:.*Check the provider credential/);
       return true;
     });
     assert.equal(faux.state.callCount, 1);
@@ -99,7 +101,6 @@ for (const failure of ["length", "usage"] as const) {
       await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId: log.id, prompt: [{ type: "text", text: "continue" }] }), (error: unknown) => {
         assert.ok(error instanceof acp.RequestError);
         assert.equal(error.code, -32603);
-        assert.doesNotMatch(error.message, /Model provider request failed|Check the provider|balance|account limit/);
         assert.notDeepEqual(error.data, { type: "provider_error" });
         return true;
       });

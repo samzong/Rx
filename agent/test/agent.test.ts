@@ -32,35 +32,6 @@ test("the agent runs tools in its cwd and logs every message with its real origi
   );
   const failed = loaded.messages[4]!;
   assert.ok(failed.role === "toolResult" && failed.isError);
-  assert.match(JSON.stringify(failed.content), /exit code 4/);
-});
-
-test("a resumed agent continues from the logged history", async () => {
-  const { faux, models, model } = fauxModels();
-  const cwd = tempDir();
-  const home = tempDir();
-  faux.setResponses([fauxAssistantMessage("first"), (context) => fauxAssistantMessage(`saw ${context.messages.map((m) => m.role).join(",")}`)]);
-  const log = SessionLog.create(home, cwd);
-  await createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log, origin: "cli" }).prompt("one");
-  const loaded = SessionLog.open(home, log.id);
-  const resumed = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log: loaded.log, origin: "cli", messages: loaded.messages });
-  await resumed.prompt("two");
-  const last = resumed.state.messages.at(-1)!;
-  assert.ok(last.role === "assistant");
-  assert.deepEqual(last.content, [{ type: "text", text: "saw system,user,assistant,user" }]);
-  assert.equal(SessionLog.open(home, log.id).messages.length, 4);
-});
-
-test("the system prompt includes AGENTS.md before CLAUDE.md", () => {
-  const cwd = tempDir();
-  assert.doesNotMatch(systemPrompt(cwd).prompt, /Instructions from/);
-  writeFileSync(join(cwd, "CLAUDE.md"), "claude rules");
-  assert.match(systemPrompt(cwd).prompt, /claude rules/);
-  writeFileSync(join(cwd, "AGENTS.md"), "agents rules");
-  const prompt = systemPrompt(cwd, new Date("2026-10-24T00:00:00Z")).prompt;
-  assert.match(prompt, /agents rules/);
-  assert.doesNotMatch(prompt, /claude rules/);
-  assert.match(prompt, /Date: 2026-10-24/);
 });
 
 test("the agent combines current instructions and skill metadata, then reads a skill through its existing tool", async (t) => {

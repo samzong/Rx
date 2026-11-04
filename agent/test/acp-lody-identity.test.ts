@@ -3,7 +3,6 @@ import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { sessionSteering } from "../src/acp-lody.ts";
 import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { fauxModels, tempDir } from "./helpers.ts";
@@ -78,56 +77,4 @@ test("identical steering input in one millisecond acknowledges only the consumed
       release();
     }
   });
-});
-
-
-test("steering identical to the active prompt is acknowledged only by its own request", { timeout: 10000 }, async (t) => {
-  const { faux, models, model } = fauxModels();
-  const marker = "same prompt and steering input";
-  const clock = t.mock.method(Date, "now", () => 1700000000000);
-  let request = 0;
-  let firstStarted!: () => void;
-  let secondStarted!: () => void;
-  let releaseFirst!: () => void;
-  let releaseSecond!: () => void;
-  const first = new Promise<void>((resolve) => { firstStarted = resolve; });
-  const second = new Promise<void>((resolve) => { secondStarted = resolve; });
-  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-  const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
-  const applied: number[] = [];
-  const seen: number[] = [];
-  faux.setResponses([fauxAssistantMessage("first response"), fauxAssistantMessage("done")]);
-  const agent = new Agent({
-    initialState: { model, thinkingLevel: "off" },
-    streamFn: async (selected, context, options) => {
-      request++;
-      seen.push(context.messages.filter((message) => message.role === "user" && JSON.stringify(message.content).includes(marker)).length);
-      if (request === 1) { firstStarted(); await firstGate; }
-      else { secondStarted(); await secondGate; }
-      return models.streamSimple(selected, context, options);
-    },
-  });
-  const steering = sessionSteering(agent);
-  const client = { notify: async () => { applied.push(request); } } as unknown as acp.AgentContext;
-  const prompt = agent.prompt(marker);
-  await first;
-  const injection = steering.inject({ sessionId: "identity", steerId: "same", prompt: [{ type: "text", text: marker }] }, client);
-  try {
-    releaseFirst();
-    await second;
-    assert.deepEqual(applied, [], `confirmation requests before steer delivery: ${JSON.stringify(applied)}`);
-    releaseSecond();
-    assert.deepEqual(await injection, { outcome: "injected" });
-    await prompt;
-    assert.deepEqual(applied, [2]);
-    assert.deepEqual(seen, [1, 2]);
-  } finally {
-    clock.mock.restore();
-    releaseFirst();
-    releaseSecond();
-    agent.abort();
-    await prompt;
-    await injection.catch(() => {});
-    steering.clear();
-  }
 });

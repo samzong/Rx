@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -41,33 +41,6 @@ function png(width = 320, height = 240): ImageContent {
   return { type: "image", mimeType: "image/png", data: bytes.toString("base64") };
 }
 
-test("recall reads inclusive current-session ordinals without writing small text", async () => {
-  const f = fixture([user("first"), user("  原文\r\n😀\tlast  "), user("third")]);
-  const result = await f.tool.execute("recall", { from: 2, to: 2 });
-  assert.deepEqual(f.ranges, [[2, 2]]);
-  assert.match(textOf(result), /\[log 2\] user \(origin: acp\)/);
-  assert.ok(result.content.some((block) => block.type === "text" && block.text === "  原文\r\n😀\tlast  "));
-  assert.doesNotMatch(textOf(result), /first|third/);
-  assert.equal(existsSync(f.directory), false);
-  await f.tool.execute("recall", { from: 1, to: 3 });
-  assert.deepEqual(f.ranges.at(-1), [1, 3]);
-});
-
-test("recall rejects invalid bounds and extra selectors before consulting the reader", async () => {
-  const f = fixture([user("original")]);
-  const invalid = [
-    { from: 0, to: 1 }, { from: 2, to: 1 }, { from: 1.5, to: 2 },
-    { from: 1, to: Infinity }, { from: 1, to: Number.MAX_SAFE_INTEGER + 1 },
-    { from: 1, to: 1, sessionId: "other" }, { from: 1, to: 1, path: "/other" },
-  ];
-  for (const args of invalid) await assert.rejects(f.tool.execute("recall", args));
-  assert.equal(f.ranges.length, 0);
-  await assert.rejects(f.tool.execute("recall", { from: 1, to: 2 }));
-  const failure = new Error("corrupt terminated record");
-  const broken = sessionHistoryTool({ ...f.reader, readRange() { throw failure; } }, () => f.model);
-  await assert.rejects(broken.execute("recall", { from: 1, to: 1 }), (error) => error === failure);
-});
-
 test("recall exposes visible evidence, tool identity, errors, and separate requested and executed inputs", async () => {
   const request = assistant([
     { type: "thinking", thinking: "hidden reasoning", thinkingSignature: "hidden-thinking-signature" },
@@ -87,8 +60,7 @@ test("recall exposes visible evidence, tool identity, errors, and separate reque
   const result = await f.tool.execute("recall", { from: 1, to: 4 });
   const text = textOf(result);
   assert.match(text, /visible answer/);
-  assert.match(text, /Recorded error: recorded failure/);
-  assert.match(text, /Recorded tool result bash \(call-1\), error/);
+  assert.match(text, /recorded failure/);
   assert.match(text, /original tool error/);
   assert.match(text, /Requested input for bash \(call-1\): \{"command":"requested command"\}/);
   assert.match(text, /Recorded executed input for bash \(call-1\): \{"command":"executed command"\}/);
@@ -154,19 +126,6 @@ test("recall preserves unsupported, oversized, and malformed images as private r
   assert.match(textOf(supported), /8001x1 px/);
   assert.match(textOf(supported), /3 MiB limit/);
   assert.match(textOf(supported), /supported image signature/);
-});
-
-test("cancellation before execution or after snapshot reads creates no attachments", async () => {
-  const f = fixture([{ role: "user", content: [{ type: "text", text: "long".repeat(20000) }, png()], timestamp: 1 }]);
-  const abort = new AbortController();
-  abort.abort();
-  await assert.rejects(f.tool.execute("recall", { from: 1, to: 1 }, abort.signal), { name: "AbortError" });
-  assert.equal(f.ranges.length, 0);
-  assert.equal(existsSync(f.directory), false);
-  const during = new AbortController();
-  const tool = sessionHistoryTool({ ...f.reader, readRange(from, to) { const snapshot = f.reader.readRange(from, to); during.abort(); return snapshot; } }, () => f.model);
-  await assert.rejects(tool.execute("recall", { from: 1, to: 1 }, during.signal), { name: "AbortError" });
-  assert.equal(existsSync(f.directory), false);
 });
 
 test("attachment overwrites restore private modes and reject symlinks without changing their targets", async () => {

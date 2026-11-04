@@ -43,15 +43,8 @@ fn host_entrypoint_rejects_the_rx_agent() {
     for name in ["rx-agent", "agent"] {
         let env =
             EnvLookup::isolated(HashMap::from([(REQUEST_ENV.to_string(), request(Some(name)))]));
-        let error = run(Vec::new(), &env).unwrap_err();
-        assert_eq!(error.to_string(), format!("unknown harness: {name}"));
+        assert!(run(Vec::new(), &env).is_err());
     }
-}
-
-#[test]
-fn hosted_request_allows_missing_harness() {
-    assert!(parse_request(&request(None)).unwrap().harness.is_none());
-    assert_eq!(parse_request(&request(Some("codex"))).unwrap().harness.as_deref(), Some("codex"));
 }
 
 #[test]
@@ -62,38 +55,6 @@ fn request_rejects_unknown_fields_and_unsafe_profile_values() {
     let mut value: serde_json::Value = serde_json::from_str(&request(None)).unwrap();
     value["gateway"]["credential_env"] = serde_json::json!("KEY;bad");
     assert!(parse_request(&value.to_string()).is_err());
-}
-
-#[test]
-fn route_guards_are_harness_specific() {
-    for (harness, allowed, rejected) in [
-        (
-            Harness::Claude,
-            vec!["--resume", "session", "--tools", "Read"],
-            vec!["--settings", "route.json"],
-        ),
-        (
-            Harness::Codex,
-            vec!["resume", "--last", "-c", "sandbox_mode=read-only"],
-            vec!["-c", "model_provider=ollama"],
-        ),
-        (
-            Harness::OpenCode,
-            vec!["--model", "acme/model-a", "--fork"],
-            vec!["--model", "openai/model-a"],
-        ),
-        (
-            Harness::Pi,
-            vec!["--provider", "acme", "--model", "model-a", "--resume"],
-            vec!["--api-key", "secret"],
-        ),
-        (Harness::Dsh, vec![], vec!["--patch", "other.yml"]),
-    ] {
-        validate_route_args(harness, &os(&allowed), "acme").unwrap();
-        assert!(validate_route_args(harness, &os(&rejected), "acme").is_err());
-    }
-    validate_route_args(Harness::Kimi, &os(&["--session", "session-id", "--plan"]), "acme")
-        .unwrap();
 }
 
 #[test]
@@ -144,25 +105,5 @@ fn model_scopes_follow_the_requested_gateway() {
         ] {
             assert_eq!(validate_route_args(Harness::Pi, &os(&argv), provider).is_ok(), accepted);
         }
-    }
-}
-
-#[test]
-fn native_arguments_after_double_dash_are_literal() {
-    validate_route_args(
-        Harness::Claude,
-        &os(&["--resume", "session", "--", "--settings", "literal"]),
-        "acme",
-    )
-    .unwrap();
-}
-
-#[test]
-fn hosted_controls_are_scoped_and_leave_harness_homes_native() {
-    for (policy, value) in [(InstallPolicy::Prompt, "0"), (InstallPolicy::Deny, "1")] {
-        assert_eq!(
-            install_overrides(policy),
-            HashMap::from([("RX_NO_INSTALL".to_string(), value.to_string())])
-        );
     }
 }

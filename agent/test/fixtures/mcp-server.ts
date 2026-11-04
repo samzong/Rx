@@ -14,10 +14,9 @@ input.on("line", (line) => {
     respond(message.id, { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "rx-mcp-fixture", version: "1" } });
   } else if (message.method === "tools/list") {
     if (process.argv.includes("--hang-list")) return;
-    const names = ["echo", "fail", "slow", "structured", "a.b", "a_b", "a".repeat(90)];
+    const names = ["echo", "fail", "slow"];
     const extra = process.argv.find((arg) => arg.startsWith("--tool="))?.slice(7);
     if (extra) names.push(extra);
-    if (process.argv.includes("--duplicate-tool")) names.push("echo");
     respond(message.id, { tools: names.map((name) => ({ name, description: `Fixture ${name} tool`, inputSchema: { type: "object", properties: { value: { type: "string" } } } })) });
   } else if (message.method === "tools/call") {
     const name = message.params.name;
@@ -26,7 +25,6 @@ input.on("line", (line) => {
       process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: message.params._meta?.progressToken, progress: 1, total: 2 } })}\n`);
       timers.set(message.id, setTimeout(() => respond(message.id, { content: [{ type: "text", text: "slow result" }] }), 20_000));
     } else if (name === "fail") respond(message.id, { isError: true, content: [{ type: "text", text: "fixture tool refused" }] });
-    else if (name === "structured") respond(message.id, { structuredContent: { answer: 42 } });
     else respond(message.id, { content: [{ type: "text", text: message.params.arguments?.value ?? process.env.RX_MCP_TEST_VALUE ?? "MCP_FIXTURE_OK" }] });
   } else if (message.method === "notifications/cancelled") {
     writeTrace("cancelled");

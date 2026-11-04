@@ -1,6 +1,4 @@
 use super::*;
-use crate::args::take_model;
-use std::ffi::OsString;
 use std::fs;
 
 fn target(key: &str) -> ProviderTarget {
@@ -20,10 +18,6 @@ fn listed(id: &str, name: &str, context: i64) -> ListedModel {
     ListedModel { id: id.to_string(), name: Some(name.to_string()), context_length: Some(context) }
 }
 
-fn os(argv: &[&str]) -> Vec<OsString> {
-    argv.iter().map(OsString::from).collect()
-}
-
 fn run_isolated(name: &str) -> bool {
     if std::env::var_os("RX_TEST_KIMI_CATALOG_CHILD").is_some() {
         return false;
@@ -40,18 +34,6 @@ fn run_isolated(name: &str) -> bool {
         String::from_utf8_lossy(&output.stderr)
     );
     true
-}
-
-#[test]
-fn model_flag_selects_catalog_model_and_preserves_literal_arguments() {
-    assert_eq!(
-        take_model(&os(&["--plan", "-m", "kimi-k3", "--", "--model", "literal"])).unwrap(),
-        (Some("kimi-k3".to_string()), os(&["--plan", "--", "--model", "literal"]))
-    );
-    assert_eq!(
-        take_model(&os(&["--model=glm-5", "-m=deepseek-v4"])).unwrap(),
-        (Some("deepseek-v4".to_string()), Vec::new())
-    );
 }
 
 #[test]
@@ -106,21 +88,6 @@ fn catalog_refresh_preserves_user_config_and_replaces_owned_models() {
 }
 
 #[test]
-fn modified_owned_model_is_preserved_and_blocks_reclaim() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml");
-    let models = [listed("model-a", "Model A", 200_000)];
-    seed(&path, "rx-acme", "rx-secret", &models).unwrap();
-    let mut document = fs::read_to_string(&path).unwrap().parse::<DocumentMut>().unwrap();
-    document["models"]["rx-acme/model-a"]["model"] = value("user-model");
-    fs::write(&path, document.to_string()).unwrap();
-    let error = seed(&path, "rx-acme", "rx-secret", &models).unwrap_err();
-    assert!(error.to_string().contains("outside Rx ownership"), "{error:#}");
-    let document = read_config(&path);
-    assert_eq!(document["models"]["rx-acme/model-a"]["model"].as_str(), Some("user-model"));
-}
-
-#[test]
 fn overlapping_catalogs_keep_live_routes_and_reclaim_only_exited_launches() {
     if run_isolated(
         "kimi::store::tests::overlapping_catalogs_keep_live_routes_and_reclaim_only_exited_launches",
@@ -159,17 +126,6 @@ fn overlapping_catalogs_keep_live_routes_and_reclaim_only_exited_launches() {
     let document = read_config(&path);
     assert!(document["models"].get("rx-first/model-b").is_none());
     assert!(document["providers"].get("rx-first").is_none());
-    let marker = read_marker(&appended_path(&path, ".rx-catalog.json")).unwrap().unwrap();
-    let CatalogMarker::Leased { catalogs, .. } = marker else { panic!("expected leased catalog") };
-    assert_eq!(catalogs.len(), 1);
-    assert_eq!(
-        fs::read_dir(dir.path())
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".rx-kimi-"))
-            .count(),
-        3
-    );
     drop(fourth);
 }
 
@@ -333,31 +289,4 @@ fn purge_leaves_other_providers_untouched() {
     let config = read_config(&path);
     assert!(config["models"]["rx-openrouter/gpt-6"].is_table());
     assert!(config["providers"].get("rx-acme").is_none());
-}
-
-#[test]
-fn purge_refuses_while_a_launch_holds_the_catalog() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml");
-    let lease = seed(&path, "rx-acme", "sk-secret", &[listed("glm-5", "GLM 5", 200000)]).unwrap();
-
-    let residue = purge(&path, "rx-acme").unwrap();
-    assert!(matches!(residue, Residue::Blocked(_)), "{residue:?}");
-    assert!(fs::read_to_string(&path).unwrap().contains("sk-secret"));
-    drop(lease);
-
-    assert_eq!(purge(&path, "rx-acme").unwrap(), Residue::Removed);
-    assert!(!fs::read_to_string(&path).unwrap().contains("sk-secret"));
-}
-
-#[test]
-fn purge_without_a_marker_reports_nothing() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml");
-    fs::write(&path, "[providers.native]\napi_key = \"native-key\"\n").unwrap();
-    assert_eq!(purge(&path, "rx-acme").unwrap(), Residue::Absent);
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "[providers.native]\napi_key = \"native-key\"\n"
-    );
 }

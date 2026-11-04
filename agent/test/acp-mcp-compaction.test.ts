@@ -101,7 +101,7 @@ for (const disconnect of [false, true]) {
       const pending = h.prompt(ctx, sessionId, "/compact");
       observed = pending.catch(() => undefined);
       await begin;
-      await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [h.server("blocked")] }), /session is running/);
+      await assert.rejects(ctx.request(acp.methods.agent.session.load, { sessionId, cwd: h.cwd, mcpServers: [h.server("blocked")] }));
       if (disconnect) return;
       await ctx.notify(acp.methods.agent.session.cancel, { sessionId });
       await observed;

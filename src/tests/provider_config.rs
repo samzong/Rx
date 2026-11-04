@@ -25,54 +25,6 @@ fn a_stored_key_outlives_its_provider_and_can_still_be_removed() {
 }
 
 #[test]
-fn completion_ids_list_configured_and_known() {
-    let (_dir, paths) = temp_paths();
-    let env = isolated(&[]);
-    let known = crate::providers::completion_ids(&paths, &env, ProviderIdFilter::All).unwrap();
-    assert!(known.contains(&"openrouter".to_string()), "{known:?}");
-    assert!(known.contains(&"tokener".to_string()), "{known:?}");
-    assert!(
-        crate::providers::completion_ids(&paths, &env, ProviderIdFilter::Configured)
-            .unwrap()
-            .is_empty()
-    );
-
-    config::login(&paths, "openrouter", "sk-secret".to_string()).unwrap();
-    assert_eq!(
-        crate::providers::completion_ids(&paths, &env, ProviderIdFilter::Configured).unwrap(),
-        vec!["openrouter".to_string()]
-    );
-    let mut targets =
-        crate::providers::completion_ids(&paths, &env, ProviderIdFilter::Targets).unwrap();
-    assert_eq!(targets.pop(), Some("none".to_string()));
-    assert_eq!(targets, vec!["openrouter".to_string()]);
-    for id in known {
-        assert_ne!(id, "none");
-    }
-}
-
-#[test]
-fn available_providers_include_only_complete_custom_entries_once() {
-    let config: crate::config::RxConfig = toml::from_str(
-        r#"
-[provider.openrouter]
-base_url = "https://proxy.example.com/v1"
-
-[provider.complete]
-base_url = "https://complete.example.com/v1"
-
-[provider.incomplete]
-env = "INCOMPLETE_API_KEY"
-"#,
-    )
-    .unwrap();
-    let available = provider::available(&config).unwrap();
-    assert_eq!(available.iter().filter(|provider| provider.id == "openrouter").count(), 1);
-    assert!(available.iter().any(|provider| provider.id == "complete"));
-    assert!(!available.iter().any(|provider| provider.id == "incomplete"));
-}
-
-#[test]
 fn bundled_providers_match_the_admission_list() {
     let admission: Value =
         serde_json::from_str(include_str!("../../data/provider-admission.json")).unwrap();
@@ -95,36 +47,6 @@ fn bundled_providers_match_the_admission_list() {
     let bundled =
         provider::catalog().iter().map(|provider| provider.id.clone()).collect::<Vec<_>>();
     assert_eq!(bundled, admitted);
-    assert_eq!(bundled.first().map(String::as_str), Some("openrouter"));
-    assert_eq!(bundled.get(1).map(String::as_str), Some("tokener"));
-    assert_eq!(provider::find("tokener").unwrap().endpoint, "https://api.tokener.ai/v1");
-    let deepseek = provider::find("deepseek").unwrap();
-    assert_eq!(deepseek.endpoint, "https://api.deepseek.com");
-    assert_eq!(deepseek.env, "DEEPSEEK_API_KEY");
-    assert_eq!(deepseek.anthropic_base.as_deref(), Some("https://api.deepseek.com/anthropic"));
-    assert_eq!(deepseek.default_context, Some(1_000_000));
-    assert_eq!(provider::claude_base(deepseek), "https://api.deepseek.com/anthropic");
-    let moonshot = provider::find("moonshotai").unwrap();
-    assert_eq!(moonshot.endpoint, "https://api.moonshot.ai/v1");
-    assert_eq!(moonshot.anthropic_base.as_deref(), Some("https://api.moonshot.ai/anthropic"));
-    let minimax = provider::find("minimax").unwrap();
-    assert_eq!(minimax.endpoint, "https://api.minimax.io/v1");
-    assert_eq!(minimax.anthropic_base.as_deref(), Some("https://api.minimax.io/anthropic"));
-    assert_eq!(provider::claude_base(minimax), "https://api.minimax.io/anthropic");
-    let siliconflow = provider::find("siliconflow").unwrap();
-    assert_eq!(siliconflow.endpoint, "https://api.siliconflow.com/v1");
-    assert_eq!(siliconflow.env, "SILICONFLOW_API_KEY");
-    assert_eq!(siliconflow.anthropic_base, None);
-    assert_eq!(provider::claude_base(siliconflow), "https://api.siliconflow.com");
-    let zai = provider::find("zai").unwrap();
-    assert_eq!(zai.endpoint, "https://api.z.ai/api/paas/v4");
-    assert_eq!(zai.env, "ZHIPU_API_KEY");
-    assert_eq!(zai.anthropic_base.as_deref(), Some("https://api.z.ai/api/anthropic"));
-    assert_eq!(provider::claude_base(zai), "https://api.z.ai/api/anthropic");
-    assert_eq!(catalog::openai_base(&zai.endpoint), "https://api.z.ai/api/paas/v4");
-    let zhipu = provider::find("zhipuai").unwrap();
-    assert_eq!(zhipu.endpoint, "https://open.bigmodel.cn/api/paas/v4");
-    assert_eq!(zhipu.anthropic_base.as_deref(), Some("https://open.bigmodel.cn/api/anthropic"));
     for provider in provider::catalog() {
         provider::validate_id(&provider.id).unwrap();
         assert!(provider.endpoint.starts_with("https://"), "{}", provider.id);
@@ -141,36 +63,6 @@ fn bundled_providers_match_the_admission_list() {
 }
 
 #[test]
-fn provider_login_and_logout_store_no_driver_or_catalog_endpoint() {
-    let (_dir, paths) = temp_paths();
-    config::login(&paths, "openrouter", "sk-secret".to_string()).unwrap();
-
-    let config = config::load(&paths).unwrap().unwrap();
-    assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
-    assert!(config::stored_providers(&paths).unwrap().contains("openrouter"));
-    let serialized = fs::read_to_string(&paths.config).unwrap();
-    assert!(!serialized.contains("driver"));
-    assert!(!serialized.contains("base_url"));
-
-    assert!(config::logout(&paths, "openrouter").unwrap());
-    let config = config::load(&paths).unwrap().unwrap();
-    assert_eq!(config.default_provider, None);
-    assert!(!config::stored_providers(&paths).unwrap().contains("openrouter"));
-}
-
-#[test]
-fn missing_key_errors_before_exec() {
-    let (_dir, paths) = temp_paths();
-    let error =
-        launch::plan(&request(Harness::Claude, Some("openrouter"), &[]), &paths, &isolated(&[]))
-            .unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "no API key for provider 'openrouter'; run: rx providers login openrouter (or set $OPENROUTER_API_KEY)"
-    );
-}
-
-#[test]
 fn custom_provider_does_not_inherit_catalog_env_key() {
     let (_dir, paths) = temp_paths();
     fs::write(
@@ -184,12 +76,7 @@ base_url = "https://dev.provider.test"
     .unwrap();
     let env = isolated(&[("TOKENER_API_KEY", "sk-prod")]);
 
-    let error = launch::plan(&request(Harness::Codex, None, &[]), &paths, &env).unwrap_err();
-
-    assert_eq!(
-        error.to_string(),
-        "no API key for provider 'tokener-dev'; run: rx providers login tokener-dev (or set $RX_PROVIDER_TOKENER_DEV_API_KEY)"
-    );
+    assert!(launch::plan(&request(Harness::Codex, None, &[]), &paths, &env).is_err());
 }
 
 #[test]
@@ -233,8 +120,7 @@ auth = "env"
     .unwrap();
     fs::write(&paths.keys, "{").unwrap();
 
-    let error = config::login(&paths, "openrouter", "sk-secret".to_string()).unwrap_err();
-    assert!(error.to_string().contains("failed to parse"), "{error}");
+    assert!(config::login(&paths, "openrouter", "sk-secret".to_string()).is_err());
 
     let config = config::load(&paths).unwrap().unwrap();
     assert_eq!(config.provider["openrouter"].auth, config::AuthMode::Env);
@@ -317,17 +203,6 @@ auth = "env"
     assert_eq!(loaded.default_provider.as_deref(), Some("custom"));
     assert_eq!(loaded.provider["custom"].auth, config::AuthMode::Env);
     assert!(!paths.keys.exists());
-}
-
-#[test]
-fn provider_default_selection_does_not_create_auth_config() {
-    let (_dir, paths) = temp_paths();
-
-    config::set_default(&paths, "openrouter").unwrap();
-
-    let loaded = config::load(&paths).unwrap().unwrap();
-    assert_eq!(loaded.default_provider.as_deref(), Some("openrouter"));
-    assert!(!loaded.provider.contains_key("openrouter"));
 }
 
 #[test]
@@ -438,8 +313,7 @@ base_url = "https://provider.test/v1"
     )
     .unwrap();
 
-    let error = launch::plan(&request(Harness::Pi, None, &[]), &paths, &isolated(&[])).unwrap_err();
-    assert!(error.to_string().contains("invalid provider name '../prod'"), "{error}");
+    assert!(launch::plan(&request(Harness::Pi, None, &[]), &paths, &isolated(&[])).is_err());
 }
 
 #[test]

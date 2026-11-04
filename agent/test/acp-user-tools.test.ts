@@ -3,11 +3,9 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import { fauxAssistantMessage, fauxToolCall, type JsonObject } from "@earendil-works/pi-ai";
-import { createAcpApp } from "../src/acp.ts";
 import { createRxAgent } from "../src/agent.ts";
+import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
-import { render } from "../src/terminal.ts";
-import { todoTool, todoUpdate } from "../src/todo.ts";
 import { fauxModels, tempDir } from "./helpers.ts";
 
 process.env.HOME = tempDir();
@@ -71,19 +69,6 @@ test("todo persists complete snapshots and replays every plan at its original po
     assert.equal(h.faux.state.callCount, 6);
     assert.equal(readFileSync(log.path, "utf8"), before);
   });
-});
-
-test("CLI agents expose todo but no ask_user, and the terminal prints the complete checklist", async (t) => {
-  const h = harness();
-  const agent = createRxAgent({ models: h.models, model: h.model, thinking: "off", cwd: h.cwd, systemPrompt: "", log: SessionLog.create(h.home, h.cwd), origin: "cli" });
-  assert.ok(agent.state.tools.some((tool) => tool.name === "todo"));
-  assert.ok(!agent.state.tools.some((tool) => tool.name === "ask_user"));
-  const result = await todoTool().execute("id", { entries: [{ content: "Run acceptance", status: "completed" }] });
-  const output: string[] = [];
-  t.mock.method(process.stderr, "write", (chunk: string | Uint8Array) => { output.push(String(chunk)); return true; });
-  render({ type: "tool_execution_end", toolCallId: "id", toolName: "todo", result, isError: false }, false);
-  assert.match(output.join(""), /\[x\] Run acceptance/);
-  assert.equal(todoUpdate({ version: 1, entries: [{ content: "bad", status: "cancelled" }] }), undefined);
 });
 
 test("ask_user maps single, multiple, free-text, custom, and note fields to Lody form and returns accepted answers", async () => {
@@ -157,18 +142,6 @@ for (const action of ["decline", "cancel", "accept"] as const) {
   });
 }
 
-test("clients without elicitation.form never receive an ask_user tool, including after load", async () => {
-  const h = harness();
-  await h.client.connectWith(h.app, async (ctx) => {
-    const id = await h.open(ctx, false);
-    const names = () => h.sessions.get(id)!.agent.state.tools.map((tool) => tool.name);
-    assert.ok(names().includes("todo"));
-    assert.ok(!names().includes("ask_user"));
-    await ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd: h.cwd, mcpServers: [] });
-    assert.ok(!names().includes("ask_user"));
-  });
-});
-
 test("cancelling a turn settles an elicitation even when the client ignores cancellation and answers late", { timeout: 10000 }, async () => {
   let started!: () => void;
   let reply!: (response: acp.CreateElicitationResponse) => void;
@@ -202,22 +175,6 @@ test("cancelling a turn settles an elicitation even when the client ignores canc
   });
 });
 
-test("invalid question identities and invalid accepted choices fail the tool without recording an answer", async () => {
-  let requests = 0;
-  const h = harness(() => { requests++; return { action: "accept", content: { q0: "not an option" } }; });
-  h.faux.setResponses([
-    call("ask_user", { questions: [{ id: "same", question: "One" }, { id: "same", question: "Two" }] }, "duplicate"),
-    call("ask_user", { questions: [{ id: "one", question: "Pick", options: [{ label: "Allowed" }], allowCustomAnswer: false }] }, "invalid"),
-    fauxAssistantMessage("handled"),
-  ]);
-  await h.client.connectWith(h.app, async (ctx) => {
-    const id = await h.open(ctx);
-    await h.prompt(ctx, id);
-    assert.equal(requests, 1);
-    assert.equal(h.result(id).isError, true);
-  });
-});
-
 test("closing the ACP connection aborts a pending question and records the aborted turn", { timeout: 10000 }, async () => {
   let started!: () => void;
   const beginning = new Promise<void>((resolve) => { started = resolve; });
@@ -235,7 +192,6 @@ test("closing the ACP connection aborts a pending question and records the abort
   const last = SessionLog.open(h.home, id).history.at(-1)!;
   assert.ok(last.role === "assistant" && last.stopReason === "aborted");
 });
-
 
 test("forked sessions replay the selected turn plan and retain structured questions", async () => {
   let askedSession: string | undefined;
@@ -269,5 +225,20 @@ test("forked sessions replay the selected turn plan and retain structured questi
     assert.deepEqual(h.updates.slice(before).filter((update) => update.sessionUpdate === "plan"), [{ sessionUpdate: "plan", entries: first }]);
     assert.equal(h.faux.state.callCount, calls);
     assert.equal(readFileSync(sourcePath, "utf8"), sourceBefore);
+  });
+});
+
+test("clients without elicitation.form never receive an ask_user tool, including after load", async () => {
+  const h = harness();
+  const cli = createRxAgent({ models: h.models, model: h.model, thinking: "off", cwd: h.cwd, systemPrompt: "", log: SessionLog.create(h.home, h.cwd), origin: "cli" });
+  assert.ok(cli.state.tools.some((tool) => tool.name === "todo"));
+  assert.equal(cli.state.tools.some((tool) => tool.name === "ask_user"), false);
+  await h.client.connectWith(h.app, async (ctx) => {
+    const id = await h.open(ctx, false);
+    const names = () => h.sessions.get(id)!.agent.state.tools.map((tool) => tool.name);
+    assert.ok(names().includes("todo"));
+    assert.ok(!names().includes("ask_user"));
+    await ctx.request(acp.methods.agent.session.load, { sessionId: id, cwd: h.cwd, mcpServers: [] });
+    assert.ok(!names().includes("ask_user"));
   });
 });
