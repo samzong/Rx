@@ -55,14 +55,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
 
   const snapshot = (selection: AcpSelection) => configurationSnapshot(options.models, selection, booleanSupported);
 
-  const forkError = (error: unknown, sessionId: string) => {
+  const sessionOpenError = (error: unknown, sessionId?: string) => {
     const detail = error instanceof Error ? error.message : String(error);
     const io = error as NodeJS.ErrnoException | null;
-    if (io?.code === "ENOENT" && io.path === join(options.home, "sessions", `${sessionId}.jsonl`)) return acp.RequestError.resourceNotFound(sessionId);
+    if (sessionId && io?.code === "ENOENT" && io.path === join(options.home, "sessions", `${sessionId}.jsonl`)) return acp.RequestError.resourceNotFound(sessionId);
     return io?.code ? acp.RequestError.internalError(undefined, detail) : acp.RequestError.invalidParams(undefined, detail);
   };
 
-  const open = async (cwd: string, start: () => { log: SessionLog; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; turns?: SessionTurn[] }, servers: acp.McpServer[], signal: AbortSignal, client: acp.AgentContext, settings?: { requireCwd?: boolean; newLog?: boolean; selection?: AcpSelection; meta?: acp.NewSessionRequest["_meta"] }) => {
+  const open = async (cwd: string, start: () => { log: SessionLog; lockAcquired?: boolean; messages: AgentMessage[]; history?: AgentMessage[]; usageMessages?: AgentMessage[]; origins?: Origin[]; inputs?: ReadonlyMap<string, Record<string, unknown>>; turns?: SessionTurn[] }, servers: acp.McpServer[], signal: AbortSignal, client: acp.AgentContext, settings?: { requireCwd?: boolean; newLog?: boolean; selection?: AcpSelection; meta?: acp.NewSessionRequest["_meta"] }) => {
     const originProjectPath = worktreeProject(settings?.meta);
     let choice: ModelChoice;
     let prompt: ReturnType<typeof systemPrompt>;
@@ -78,10 +78,13 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     const configuration = await snapshot(selection);
     const mcp = await connectMcp({ home: options.home, cwd, servers, signal });
     let openedLog: SessionLog | undefined;
+    let lockAcquired = false;
     try {
       signal.throwIfAborted();
-      const { log, messages, history = messages, usageMessages = messages, origins, inputs, turns } = start();
+      const opened = start();
+      const { log, messages, history = messages, usageMessages = messages, origins, inputs, turns } = opened;
       openedLog = log;
+      lockAcquired = opened.lockAcquired ?? settings?.newLog ?? false;
       log.recordOriginProject(originProjectPath);
       const tools = [...mcp.tools, ...(elicitationSupported ? [askUserTool(log.id, client, answerNotes, async (waiting) => { await live.reportActivity?.(waiting ? "requires_action" : "running"); })] : [])];
       const reportRateLimits = async (limits: RateLimitsSnapshot | undefined) => {
@@ -100,9 +103,9 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       return { live, history, usageMessages, origins, inputs, turns, configuration };
     } catch (error) {
       try {
-        if (settings?.newLog && openedLog) {
-          rmSync(openedLog.path, { force: true });
-          unlockSession(options.home, openedLog.id);
+        if (openedLog) {
+          if (settings?.newLog) rmSync(openedLog.path, { force: true });
+          if (lockAcquired) unlockSession(options.home, openedLog.id);
         }
       } catch {} finally {
         await mcp.close();
@@ -160,14 +163,14 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
       try {
         readSessionHeader(options.home, params.sessionId);
       } catch (error) {
-        throw forkError(error, params.sessionId);
+        throw sessionOpenError(error, params.sessionId);
       }
       const { live, configuration } = await open(params.cwd, () => {
         try {
           const loaded = SessionLog.fork(options.home, params.sessionId, params.cwd, turnId);
           return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
         } catch (error) {
-          throw forkError(error, params.sessionId);
+          throw sessionOpenError(error, params.sessionId);
         }
       }, params.mcpServers ?? [], signal, client, { requireCwd: true, newLog: true, selection: sessions.get(params.sessionId)?.selection, meta: params._meta });
       await client.notify(acp.methods.client.session.update, { sessionId: live.log.id, update: availableCommands(live.commands) });
@@ -176,14 +179,23 @@ export function createAcpApp(options: AcpOptions, sessions = new Map<string, Liv
     .onRequest(acp.methods.agent.session.load, async ({ params, client, signal }) => {
       const previous = sessions.get(params.sessionId);
       if (opening.has(params.sessionId) || previous?.running || previous?.configuring) throw acp.RequestError.invalidRequest(undefined, "session is running or changing configuration");
-      const { cwd } = readSessionHeader(options.home, params.sessionId);
+      let cwd: string;
+      try {
+        ({ cwd } = readSessionHeader(options.home, params.sessionId));
+      } catch (error) {
+        throw sessionOpenError(error);
+      }
       if (cwd !== params.cwd) throw acp.RequestError.invalidParams(undefined, `session ${params.sessionId} belongs to ${cwd}, not ${params.cwd}`);
       opening.add(params.sessionId);
       if (previous) previous.configuring = true;
       try {
         const { live, history, usageMessages, origins, inputs, turns, configuration } = await open(cwd, () => {
-          const loaded = SessionLog.open(options.home, params.sessionId);
-          return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
+          try {
+            const loaded = SessionLog.open(options.home, params.sessionId);
+            return { ...loaded, origins: loaded.entries.filter((entry) => entry.purpose !== "compaction").map((entry) => entry.origin) };
+          } catch (error) {
+            throw sessionOpenError(error);
+          }
         }, params.mcpServers, signal, client, { meta: params._meta });
         live.configuring = true;
         try {

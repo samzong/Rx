@@ -123,7 +123,7 @@ function lockSession(home: string, id: string): boolean {
         throw error;
       }
       if (owner > 0 && owner !== process.pid && isAlive(owner)) {
-        throw new Error(`session ${id} is in use by process ${owner}; if no rx process is using it, delete ${path}`);
+        throw Object.assign(new Error(`session ${id} is in use by process ${owner}; if no rx process is using it, delete ${path}`), { code: "EBUSY" });
       }
       try {
         unlinkSync(path);
@@ -216,12 +216,12 @@ export class SessionLog {
     return new SessionLog(home, id, cwd, createdAt, 0);
   }
 
-  static open(home: string, id: string): LoadedSession {
+  static open(home: string, id: string): LoadedSession & { lockAcquired: boolean } {
     const path = sessionPath(home, id);
     statSync(path);
     const acquired = lockSession(home, id);
     try {
-      return SessionLog.load(home, path);
+      return { ...SessionLog.load(home, path), lockAcquired: acquired };
     } catch (error) {
       if (acquired) unlockSession(home, id);
       throw error;

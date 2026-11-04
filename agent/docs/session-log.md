@@ -9,6 +9,13 @@ This document is part of the normative [rx-agent design contract](../DESIGN.md).
 | RX-LOG-003 | One process writes a session at a time. Creating or opening a session atomically takes `sessions/<id>.lock` holding the owner pid. A lock held by a live process is an error that names the lock file; a lock left by a dead process is reclaimed. An open that fails releases the lock it took. `session/load` checks the session's `cwd` before taking the lock. If the dead owner's pid has been reused, the lock is not reclaimed and the user deletes the named file. Two processes reclaiming the same dead lock at the same moment can both proceed; Rx accepts this because it needs a crash followed by two simultaneous opens of that session. |
 | RX-RESUME-001 | Resume folds committed clearing selections, the latest checkpoint, and subsequent messages under the current system prompt, rebuilt for the saved session working directory. If that directory is missing, resume and ACP load still open the session with global instructions and skills only. The saved working directory and the CLI note remain unchanged; tools still run at that original path. Changes to instructions, their references, skill metadata, HOME, or RX_HOME can change resumed behavior. The log alone cannot reproduce the earlier system prompt. The complete history remains available for ACP replay and interrupted-tool repair. ACP replay shows the `toolInput` record's input for its tool call when one exists. Each tool call without a recorded result gets exactly one `rx`-origin error result stating that its side effects are unknown. Rx never re-runs it. |
 
+## ACP startup
+
+ACP startup follows RX-LOG-003 through SessionStart and configuration initialization.
+If startup fails, Rx releases only the writer lock acquired by that attempt.
+An existing writer keeps its lock when a reload fails. The saved log remains available for retry.
+ACP load and fork report corrupt session data as invalid parameters. Filesystem failures remain internal errors.
+
 ## Summary accounting
 
 Each summary response with nonzero input, output, cache-read, or cache-write tokens appends a usage record.

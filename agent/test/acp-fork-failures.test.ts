@@ -1,14 +1,53 @@
 import assert from "node:assert/strict";
-import { chmodSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
 import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
-import { assertProcessExited, fauxModels, mcpPid, tempDir } from "./helpers.ts";
+import { assertProcessExited, fauxModels, foreignSession, mcpPid, tempDir } from "./helpers.ts";
 
 process.env.HOME = tempDir();
 process.env.RX_HOME = tempDir();
+
+test("load and fork reject corrupt session data with the same public error class", async () => {
+  const { models, model } = fauxModels();
+  const cwd = tempDir();
+  const session = foreignSession(cwd);
+  const header = readFileSync(session.path, "utf8");
+  const app = createAcpApp({ home: session.home, models, choose: async () => ({ model, thinking: "off" }) });
+  await acp.client().connectWith(app, async (ctx) => {
+    for (const content of ["{broken}\n", `${header}{"type":"toolInput","input":[]}\n`]) {
+      writeFileSync(session.path, content);
+      for (const method of [acp.methods.agent.session.load, acp.methods.agent.session.fork]) {
+        await assert.rejects(ctx.request(method, { sessionId: session.id, cwd, mcpServers: [] }), (error: unknown) => error instanceof acp.RequestError && error.code === -32602);
+        assert.equal(existsSync(session.lock), false);
+        assert.equal(readFileSync(session.path, "utf8"), content);
+      }
+    }
+  });
+});
+
+test("failed load releases its new writer lock and preserves the saved log for retry", async () => {
+  const { models, model } = fauxModels();
+  const cwd = tempDir();
+  const session = foreignSession(cwd);
+  const original = readFileSync(session.path);
+  const hook = join(session.home, "reject.mjs");
+  writeFileSync(hook, "process.exitCode=2;");
+  const hooks = join(session.home, "hooks.json");
+  writeFileSync(hooks, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hook)}` }] }] } }));
+  const app = createAcpApp({ home: session.home, models, choose: async () => ({ model, thinking: "off" }) });
+  await acp.client().connectWith(app, async (ctx) => {
+    const params = { sessionId: session.id, cwd, mcpServers: [] };
+    await assert.rejects(ctx.request(acp.methods.agent.session.load, params), (error: unknown) => error instanceof acp.RequestError && error.code === -32603);
+    assert.equal(existsSync(session.lock), false);
+    assert.deepEqual(readFileSync(session.path), original);
+    rmSync(hooks);
+    await ctx.request(acp.methods.agent.session.load, params);
+    assert.equal(readFileSync(session.lock, "utf8"), String(process.pid));
+  });
+});
 
 test("failed SessionStart removes new and fork logs and locks while preserving load and source logs", async () => {
   const { models, model } = fauxModels();
