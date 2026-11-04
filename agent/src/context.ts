@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Api, type AssistantMessage, type Model, type Models, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { generateSummaryWithUsage } from "@earendil-works/pi-coding-agent";
 import { registerContextControl, type CompactionEvent } from "./context-control.ts";
 import { checkpointMessages, danglingToolCalls, type SessionLog } from "./session-log.ts";
@@ -9,7 +10,7 @@ import { transportDiagnostics } from "./transport-errors.ts";
 
 import { CompactionBudgetError, compactionPlan, contextBudget, pruningPlan, MAX_SUMMARY_CALLS } from "./context-plan.ts";
 import { CitationError, mergeSources, sourceLabel, validateSummarySources } from "./context-citations.ts";
-import type { SourceRange } from "./context-source.ts";
+import { contextRequestMessage, contextUsageInvalidated, invalidateContextUsage, type SourceRange } from "./context-source.ts";
 import { textTokens, total } from "./context-messages.ts";
 export { MAX_SUMMARY_CALLS, contextBudget } from "./context-plan.ts";
 export { messageTokens } from "./context-messages.ts";
@@ -42,6 +43,7 @@ export function installContextControl(agent: Agent, models: Models, log: Session
   let cancelled = false;
   let delivered = false;
   let requestPrepared = false;
+  let prunedEstimate: number | undefined;
   const measuredHere = new WeakMap<AssistantMessage, string>();
   let preparedKey = "";
   let generation = 0;
@@ -157,6 +159,7 @@ export function installContextControl(agent: Agent, models: Models, log: Session
 
   agent.prepareRequest = async ({ context, model }, signal) => {
     requestPrepared = false;
+    prunedEstimate = undefined;
     const budget = contextBudget(model);
     const key = measurementKey(context.messages, model);
     preparedKey = key;
@@ -179,11 +182,13 @@ export function installContextControl(agent: Agent, models: Models, log: Session
     if (pruning) {
       signal?.throwIfAborted();
       log.appendPrune(pruning.clearedSeqs);
+      invalidateContextUsage(pruning.messages);
       context = { ...context, messages: pruning.messages };
       agent.state.messages = pruning.messages;
       generation++;
       preparedKey = measurementKey(context.messages, model);
       estimate = Math.max(0, estimate - pruning.freedTokens);
+      prunedEstimate = estimate;
       if (estimate < budget.ceiling) {
         requestPrepared = true;
         return { context };
@@ -205,6 +210,14 @@ export function installContextControl(agent: Agent, models: Models, log: Session
     preparedKey = measurementKey(messages, model);
     requestPrepared = true;
     return { context: { ...context, messages } };
+  };
+  agent.transformContext = async (messages) => messages.map(contextRequestMessage);
+  const stream = agent.streamFunction;
+  agent.streamFunction = (model, context, options) => {
+    if (model.contextWindow <= 0 || !context.messages.some(contextUsageInvalidated) || estimateContextTokens(context).usageTokens > 0) return stream(model, context, options);
+    const limit = Math.max(1, model.contextWindow - (prunedEstimate ?? total(context.messages)) - 4096);
+    const maxTokens = Math.min(options?.maxTokens ?? model.maxTokens, model.maxTokens, limit);
+    return stream({ ...model, maxTokens }, context, { ...options, maxTokens });
   };
   agent.subscribe((event) => {
     if (event.type === "message_end" && event.message.role === "assistant") measuredHere.set(event.message, preparedKey);

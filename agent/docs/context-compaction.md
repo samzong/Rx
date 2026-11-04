@@ -26,10 +26,21 @@ Recent history targets the lower of 20000 tokens and 25% of the ceiling.
 These are initial limits. Token estimates include text, images, instructions, and tools, but are not exact tokenizer counts.
 The fallback uses pi's content estimate with a Unicode adjustment and excludes signatures, usage objects, timestamps, and response metadata.
 The conservative text estimate used to bound summary chunks and streamed output is independent of the working-context estimate.
-Only working responses from the current agent instance supply measured budget baselines.
+Only working responses from the current agent instance supply Rx's measured budget baselines.
 A valid baseline replaces the full estimate; it is not the maximum of those two values.
 The baseline must match the model, API, endpoint, and current system messages and tool declarations.
 Changed instructions, endpoints, models, checkpoints, or clearing selections cannot reuse a mismatched measurement.
+The request transform gives pi-ai zero token counts only for assistant measurements that precede a committed clearing selection.
+Only request copies change. Original messages, timestamps, logs, and measured ACP usage remain unchanged.
+Load rebuilds this invalidation boundary from clearing records. Measurements after that boundary retain pi-ai's existing timestamp checks.
+Load without a clearing selection preserves those checks too. Summary checkpoints contain user messages, without assistant usage.
+If pi cannot use a measurement after clearing, Rx also bounds the working output.
+A live measured baseline supplies the prepared estimate: measured prefix plus trailing estimates, minus the estimated tokens freed by clearing.
+Without a valid live baseline, the bound uses the Unicode-adjusted estimate of the full request.
+Rx caps the request model and options at the available room after a 4096-token reserve, with a minimum of one token.
+Pi still applies its native output clamp.
+This bound includes content after the last assistant message. It stops applying when pi can use a newer measurement.
+Freed tokens use Rx estimates. If a provider counts cleared content more efficiently, Rx can overstate the freed space and allow a request beyond the window.
 If the estimated fixed instructions or current input leave no room for a summary, automatic compaction sends the original request without truncation.
 The provider can accept it or return an explicit overflow, which permits the existing single recovery attempt.
 Manual compaction still reports an infeasible summary plan without changing the log.
