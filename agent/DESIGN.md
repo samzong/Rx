@@ -114,6 +114,11 @@ SDK 2.0.2 has no legacy model setter.
 Optional `_meta.lody.modelCapabilities` describes each available model before selection because standard options describe only the current model.
 The map and controls share pi-ai metadata and Fast policy.
 
+Model option names use `provider/name`, with the provider id as the prefix.
+Options sort by provider id in string order, then by model name with `localeCompare`.
+Option values, the selected value, and capability keys remain `provider/id`.
+New, load, fork, and configuration updates use the same model options.
+
 The seven Fast model IDs are `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
 They require https://chatgpt.com/backend-api and API `openai-codex-responses`.
 Fast requests priority service and can use more subscription allowance ([Speed documentation](https://developers.openai.com/codex/speed/)).
