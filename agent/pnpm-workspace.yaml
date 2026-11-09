@@ -1,7 +1,10 @@
 overrides:
   minimatch@10.2.6: 11.0.1
-  undici@8.10.2: 8.12.2
+  undici@8.10.2: 8.12.3
 
 allowBuilds:
   "@google/genai": false
   protobufjs: false
+
+minimumReleaseAgeExclude:
+  - "@agentclientprotocol/sdk@2.5.0"

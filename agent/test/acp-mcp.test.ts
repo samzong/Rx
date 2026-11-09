@@ -23,6 +23,7 @@ test("ACP fork uses requested MCP servers and can prompt before load", async () 
     fauxAssistantMessage("fork done"),
   ]);
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const source = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     const fork = await ctx.request(acp.methods.agent.session.fork, { sessionId: source.sessionId, cwd, mcpServers: [server("forked")] });
     await ctx.request(acp.methods.agent.session.prompt, { sessionId: fork.sessionId, prompt: [{ type: "text", text: "use MCP" }] });
@@ -41,6 +42,7 @@ test("ACP load closes replaced MCP children and connection end closes current ch
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   const traced = (name: string, trace: string) => ({ ...server(name), args: [fixture, `--trace=${trace}`] });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [traced("first", firstTrace)] });
     const first = await mcpPid(firstTrace);
     pids.push(first);
@@ -73,6 +75,7 @@ test("ACP new and load expose user and client MCP tools through normal model exe
     fauxAssistantMessage("loaded failure reported"),
   ]);
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [server("client")] });
     const response = await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "use client" }] });
     assert.equal(response.stopReason, "end_turn");
@@ -98,6 +101,7 @@ test("ACP new and load report skipped servers once before the first model respon
   const reply = () => fauxAssistantMessage("MODEL_RESPONSE");
   faux.setResponses([reply(), reply(), reply()]);
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [bad, server("healthy")] });
     const prompt = async (sid: string) => ctx.request(acp.methods.agent.session.prompt, { sessionId: sid, prompt: [{ type: "text", text: "reply" }] });
     assert.equal(updates.some((update) => update.sessionUpdate === "agent_message_chunk"), false);
@@ -127,6 +131,7 @@ test("ACP cancellation reaches a slow MCP server and ends the turn as cancelled"
     if (params.update.sessionUpdate === "tool_call_update" && params.update.status === "in_progress") started();
   });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [server("fixture")] });
     const turn = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "run slow" }] });
     await ready;

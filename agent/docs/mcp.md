@@ -1,6 +1,6 @@
 # MCP tools
 
-rx-agent connects MCP servers through `@earendil-works/pi-mcp` 1.4.0.
+rx-agent connects MCP servers through `@earendil-works/pi-mcp` 1.5.0.
 The same tools work in CLI sessions and ACP sessions.
 Tools run with the user's permissions under RX-PERM-001.
 MCP adds no permission prompt or sandbox.
@@ -59,7 +59,7 @@ It does not load pi's extension runtime, project configuration, resource tools, 
 ## Tool schemas
 
 MCP schemas keep local references and their `$defs` and `definitions` tables.
-With pi-ai 1.4.0, Rx restores those tables in non-strict Anthropic tool definitions after provider serialization.
+With pi-ai 1.5.0, Rx restores those tables in non-strict Anthropic tool definitions after provider serialization.
 This applies to initial tools and inline tool additions, including same-name redefinitions.
 Other providers keep their existing serialization.
 Local argument validation still uses the complete MCP schema.

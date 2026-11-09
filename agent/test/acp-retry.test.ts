@@ -27,6 +27,7 @@ for (const cancel of [false, true]) {
       if (cancel && params.update.sessionUpdate === "tool_call") await connection.notify(acp.methods.agent.session.cancel, { sessionId: params.sessionId });
     });
     await client.connectWith(app, async (ctx) => {
+      await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
       connection = ctx;
       const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
       const result = await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "test" }] });
@@ -60,6 +61,7 @@ test("ACP provider failures stay errors and the session accepts another prompt",
   faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "401 invalid API key" }), fauxAssistantMessage("recovered")]);
   const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "test" }] }), (error: unknown) => {
       assert.ok(error instanceof acp.RequestError);
@@ -97,6 +99,7 @@ for (const failure of ["length", "usage"] as const) {
     };
     const app = createAcpApp({ home, models, choose: async () => ({ model: selected, thinking: "off" }) });
     await acp.client().connectWith(app, async (ctx) => {
+      await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
       await ctx.request(acp.methods.agent.session.load, { sessionId: log.id, cwd, mcpServers: [] });
       await assert.rejects(ctx.request(acp.methods.agent.session.prompt, { sessionId: log.id, prompt: [{ type: "text", text: "continue" }] }), (error: unknown) => {
         assert.ok(error instanceof acp.RequestError);

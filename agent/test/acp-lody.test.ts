@@ -20,7 +20,10 @@ function harness() {
     .onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); })
     .onNotification("_lody/session/steer_applied", (value: unknown) => value, ({ params }) => { applied.push(params); });
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
-  return { faux, models, model, home, cwd, updates, applied, run: <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, op) };
+  return { faux, models, model, home, cwd, updates, applied, run: <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return op(ctx);
+  }) };
 }
 
 async function until(predicate: () => boolean): Promise<void> {
@@ -74,6 +77,7 @@ test("startup model selection owns thinking and malformed unrelated fields do no
   const cwd = tempDir();
   const app = createAcpApp({ home, models, choose: async () => ({ model: faux.getModel("plain")!, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const modelId = `${faux.provider.id}/reasoner`;
     const meta = { lody: { sessionConfig: { version: 1, modelId, configOptionValues: { model: `${faux.provider.id}/plain`, thinking: "high", unrelated: 42 } } } };
     const created = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [], _meta: meta });
@@ -152,6 +156,7 @@ test("saved unsupported thinking levels recover on new and load while explicit c
   const app = createAcpApp({ home: tempDir(), models, choose: async () => ({ model, thinking: "high" }) });
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const meta = (thinking: unknown, selected = model) => ({ lody: { sessionConfig: { version: 1, modelId: `${selected.provider}/${selected.id}`, configOptionValues: { thinking } } } });
     const current = (value: { configOptions?: acp.SessionConfigOption[] | null }) => value.configOptions?.find((option) => option.id === "thinking")?.currentValue;
     for (const [selected, thinking, expected] of [[model, "off", "low"], [model, "max", "xhigh"], [luna, "minimal", "low"]] as const) {

@@ -40,7 +40,7 @@ Fixing the reference permits retry without cleanup. ACP errors include the sourc
 Post-failure cleanup is the strongest alternative, but requires separate rollback for new logs, repairs, and locks.
 Preflight avoids those writes and never silently drops missing references or cycles.
 
-Rx supplies discovered files to the public pi-coding-agent 1.4.0 API through
+Rx supplies discovered files to the public pi-coding-agent 1.5.0 API through
 `loadSkills({ includeDefaults: false, skillPaths: [...] })` and `formatSkillsForPrompt(skills, "read")`.
 Upstream owns YAML metadata, validation, collision diagnostics, and prompt formatting.
 Explicit `skillPaths` include hidden groups that upstream discovery skips, without upstream changes.

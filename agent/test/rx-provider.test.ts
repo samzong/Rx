@@ -118,7 +118,7 @@ test("responses handoffs omit prompt_cache_key", async () => {
     applyHandoff(models, parseHandoff(handoff({ api: "openai-responses", baseUrl })));
     const { model } = await resolveModel(models, "acme/plain-1", "off");
     const reply = await models.completeSimple(model, { messages: [{ role: "user", content: "ping", timestamp: 0 }] }, { sessionId: "s1" });
-    assert.equal(reply.stopReason, "stop", reply.errorMessage);
+    assert.equal(reply.stopReason, "stop", reply.errorMessage ?? reply.stopReason);
     assert.deepEqual(reply.content.map((block) => block.type === "text" && block.text), ["pong"]);
     assert.equal(requests[0]!.url, "/v1/responses");
     assert.equal(requests[0]!.body.model, "plain-1");
@@ -160,12 +160,12 @@ test("a model handed off on anthropic-messages uses its own endpoint, caching, a
     const { model, thinking } = await resolveModel(models, "acme/claude-1", "xhigh");
     assert.equal(thinking, "xhigh");
     const reply = await models.completeSimple(model, context, { reasoning: "xhigh" });
-    assert.equal(reply.stopReason, "stop", reply.errorMessage);
+    assert.equal(reply.stopReason, "stop", reply.errorMessage ?? reply.stopReason);
     assert.deepEqual(reply.content, [{ type: "text", text: "pong" }]);
     const off = await models.completeSimple(model, context);
-    assert.equal(off.stopReason, "stop", off.errorMessage);
+    assert.equal(off.stopReason, "stop", off.errorMessage ?? off.stopReason);
     const plain = await models.completeSimple((await resolveModel(models, "acme/plain-1", "off")).model, context);
-    assert.equal(plain.stopReason, "stop", plain.errorMessage);
+    assert.equal(plain.stopReason, "stop", plain.errorMessage ?? plain.stopReason);
     const [high, quiet, responses] = requests;
     assert.match(high!.url!, /^\/v1\/messages(\?|$)/);
     assert.equal(high!.apiKey, "test-key");

@@ -23,7 +23,10 @@ function harness() {
   const client = acp.client()
     .onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params); })
     .onNotification(SESSION_USAGE_METHOD, (params) => params as SessionUsageUpdate, ({ params }) => { usage.push(params); });
-  return { faux, home, cwd, updates, usage, run: <T>(operation: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, operation) };
+  return { faux, home, cwd, updates, usage, run: <T>(operation: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return operation(ctx);
+  }) };
 }
 
 function turnIds(updates: acp.SessionNotification[], sessionId: string): string[] {

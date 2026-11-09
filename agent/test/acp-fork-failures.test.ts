@@ -17,6 +17,7 @@ test("load and fork reject corrupt session data with the same public error class
   const header = readFileSync(session.path, "utf8");
   const app = createAcpApp({ home: session.home, models, choose: async () => ({ model, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     for (const content of ["{broken}\n", `${header}{"type":"toolInput","input":[]}\n`]) {
       writeFileSync(session.path, content);
       for (const method of [acp.methods.agent.session.load, acp.methods.agent.session.fork]) {
@@ -39,6 +40,7 @@ test("failed load releases its new writer lock and preserves the saved log for r
   writeFileSync(hooks, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hook)}` }] }] } }));
   const app = createAcpApp({ home: session.home, models, choose: async () => ({ model, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const params = { sessionId: session.id, cwd, mcpServers: [] };
     await assert.rejects(ctx.request(acp.methods.agent.session.load, params), (error: unknown) => error instanceof acp.RequestError && error.code === -32603);
     assert.equal(existsSync(session.lock), false);
@@ -62,6 +64,7 @@ test("failed SessionStart removes new and fork logs and locks while preserving l
   writeFileSync(join(home, "hooks.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hook)}` }] }] } }));
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     for (const method of [acp.methods.agent.session.new, acp.methods.agent.session.fork, acp.methods.agent.session.load]) {
       await assert.rejects(ctx.request(method, { sessionId: source.id, cwd, mcpServers: [] }), (error: unknown) => error instanceof acp.RequestError && error.code === -32603);
       const listed = await ctx.request(acp.methods.agent.session.list, { cwd });
@@ -92,6 +95,7 @@ test("failed cleanup preserves the SessionStart rejection, retained writer lock,
     const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
     try {
       await acp.client().connectWith(app, async (ctx) => {
+        await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
         const failure = await ctx.request(method, { sessionId: source.id, cwd, mcpServers: [server] }).catch((error: unknown) => error);
         const pid = await mcpPid(trace);
         pids.push(pid);

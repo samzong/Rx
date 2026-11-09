@@ -8,16 +8,16 @@ The pi packages resolve at one version: pi-ai, pi-agent-core, pi-coding-agent,
 pi-codemode, pi-mcp, pi-tui, pi-telemetry. pi-agent-core pins pi-ai exactly;
 pi-coding-agent pins all five exactly. A bump means all seven move to the same
 tag. The ACP SDK pin (`@agentclientprotocol/sdk`) is separate and is currently
-2.0.2.
+2.5.0.
 
 ## Version-sensitive surfaces
 
 | Surface | Pinned value | Check on upgrade |
 | --- | --- | --- |
-| `agent/DESIGN.md` RX-ACP-001 | ACP SDK 2.0.2 configOptions | SDK changes require re-checking session configuration behavior |
+| `agent/DESIGN.md` RX-ACP-001 | ACP SDK 2.5.0 configOptions | SDK changes require re-checking session configuration behavior |
 | `agent/DESIGN.md` RX-ACP-003 + `src/acp-fast.ts` | Codex 0.163.0 catalog and the seven Fast model IDs | re-verify the model list and endpoint |
-| `agent/DESIGN.md` + `src/agent.ts` + `src/transport-errors.ts` | pi-ai 1.4.0 `streamSimple`/`onPayload` fetch hook | run a payload probe to confirm Fast forwarding |
-| `src/acp.ts` | `sourceVersion: "pi-ai/1.4.0;codex/0.163.0"` | update the string in `_meta.lody.modelCapabilities` |
+| `agent/DESIGN.md` + `src/agent.ts` + `src/transport-errors.ts` | pi-ai 1.5.0 `streamSimple`/`onPayload` fetch hook | run a payload probe to confirm Fast forwarding |
+| `src/acp-config.ts` | `sourceVersion: "pi-ai/1.5.0;codex/0.163.0"` | update the string in `_meta.lody.modelCapabilities` |
 | `src/transport-errors.ts` | `FETCH_APIS` set | add any new HTTP adapter pi-ai introduced |
 | `src/rx-provider.ts` | `APIS` map | update if pi-ai renames api entrypoints |
 
