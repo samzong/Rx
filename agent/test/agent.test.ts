@@ -55,7 +55,7 @@ test("the agent combines current instructions and skill metadata, then reads a s
   writeFileSync(join(rxHome, "AGENTS.md"), "GLOBAL_POLICY\n@./shared.md");
   writeFileSync(join(rxHome, "shared.md"), "IMPORTED_POLICY");
   writeFileSync(join(root, "AGENTS.md"), "ROOT_POLICY");
-  writeFileSync(join(root, "CLAUDE.md"), "IGNORED_POLICY");
+  writeFileSync(join(root, "CLAUDE.md"), "ROOT_CLAUDE_POLICY");
   writeFileSync(join(parent, "CLAUDE.md"), "PARENT_POLICY");
   writeFileSync(join(cwd, "AGENTS.md"), "CWD_POLICY");
   const skill = (base: string, directory: string, name: string, disabled = false): string => {
@@ -79,10 +79,10 @@ test("the agent combines current instructions and skill metadata, then reads a s
   const log = SessionLog.create(rxHome, cwd);
   const agent = createRxAgent({ models, model, thinking: "off", cwd, systemPrompt: systemPrompt(cwd).prompt, log, origin: "cli" });
   const prompt = agent.state.systemPrompt;
-  const markers = ["GLOBAL_POLICY", "IMPORTED_POLICY", "ROOT_POLICY", "PARENT_POLICY", "CWD_POLICY"];
+  const markers = ["GLOBAL_POLICY", "IMPORTED_POLICY", "ROOT_POLICY", "ROOT_CLAUDE_POLICY", "PARENT_POLICY", "CWD_POLICY"];
   for (let i = 1; i < markers.length; i++) assert.ok(prompt.indexOf(markers[i - 1]!) < prompt.indexOf(markers[i]!));
   for (const marker of markers) assert.ok(prompt.includes(marker));
-  assert.doesNotMatch(prompt, /IGNORED_POLICY|SKILL_BODY_|manual-only/);
+  assert.doesNotMatch(prompt, /SKILL_BODY_|manual-only/);
   assert.ok(prompt.includes(nearest));
   assert.ok(!prompt.includes(globalSkill) && !prompt.includes(rootSkill));
   assert.ok(prompt.includes("system-helper") && prompt.includes("read"));

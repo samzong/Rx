@@ -22,7 +22,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | Historical content by original ordinal: `recall_log`, current session only | Rx | `src/session-history.ts` | Not applicable. |
 | Tools: `read`, `write`, `edit`, `bash`, `todo`, local image input | Rx | `src/tools.ts`, `src/todo.ts` | Not applicable. |
 | Task lists and structured questions: `todo`, ACP `ask_user` | Rx | `src/todo.ts`, `src/acp-elicitation.ts`, `src/acp-messages.ts` | [Lody ACP contract](docs/lody-acp.md). |
-| System prompt, `AGENTS.md` and `CLAUDE.md` discovery, `@path` expansion | Rx | `src/agent.ts`, `src/instructions.ts` | Not applicable. |
+| System prompt, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`, `AGENTS.local.md`, and `CLAUDE.local.md` discovery, `@path` expansion | Rx | `src/agent.ts`, `src/instructions.ts` | Not applicable. |
 | Skill discovery, precedence, collision reports | Rx | `src/skills.ts` | Not applicable. |
 | Compaction: clear old tool output first, summarize with original source references, checkpoints, overflow recovery, `/compact` | Rx | `src/context.ts`, `src/context-control.ts` | Not applicable. |
 | Session log, resume repair, session list, locks | Rx | `src/session-log.ts`, `src/pid-lock.ts` | Not applicable. |
