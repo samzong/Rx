@@ -8,7 +8,7 @@ import { tempDir } from "./helpers.ts";
 
 process.env.RX_HOME = tempDir();
 
-test("an unreadable instruction target does not select the fallback or disappear", () => {
+test("an unreadable AGENTS.md stops startup even when CLAUDE.md is readable", () => {
   const cwd = tempDir();
   symlinkSync(join(cwd, "missing.md"), join(cwd, "AGENTS.md"));
   writeFileSync(join(cwd, "CLAUDE.md"), "fallback");
@@ -34,15 +34,15 @@ test("unprefixed references stop on unreadable files and inaccessible parent dir
   }
 });
 
-test("each directory adds its local files after its override, AGENTS.md, or nothing", () => {
+test("each directory adds its local files after its override, its AGENTS.md and CLAUDE.md, or nothing", () => {
   const directory = (files: Record<string, string>): string => {
     const cwd = tempDir();
     for (const [name, text] of Object.entries(files)) writeFileSync(join(cwd, name), text);
     return cwd;
   };
   const texts = (cwd: string) => loadInstructions([cwd], tempDir()).map(({ text }) => text);
-  assert.deepEqual(texts(directory({ "AGENTS.override.md": "OVERRIDE", "AGENTS.md": "BASE", "AGENTS.local.md": "LOCAL" })), ["OVERRIDE", "LOCAL"]);
-  assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL" })), ["BASE", "LOCAL"]);
+  assert.deepEqual(texts(directory({ "AGENTS.override.md": "OVERRIDE", "AGENTS.md": "BASE", "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL" })), ["OVERRIDE", "LOCAL"]);
+  assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL" })), ["BASE", "CLAUDE", "LOCAL"]);
   assert.deepEqual(texts(directory({ "AGENTS.local.md": "LOCAL" })), ["LOCAL"]);
   assert.deepEqual(texts(directory({ "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL", "CLAUDE.local.md": "CLAUDE_LOCAL" })), ["CLAUDE", "LOCAL", "CLAUDE_LOCAL"]);
   assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "CLAUDE.local.md": "CLAUDE_LOCAL" })), ["BASE", "CLAUDE_LOCAL"]);

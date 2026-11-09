@@ -50,9 +50,9 @@ Files:
   $RX_HOME/hooks.json                    user command checks; see agent/docs/hooks.md
   $RX_HOME/device-id                     installation id sent to providers that require one
   AGENTS.override.md                     project instructions per directory, from the Git root through the working directory
-  AGENTS.md or CLAUDE.md                 used in a directory without AGENTS.override.md
-  AGENTS.local.md                        local project instructions, read after the shared file in each directory
-  CLAUDE.local.md                        read after AGENTS.local.md; identical copies load once
+  AGENTS.md, then CLAUDE.md              both read in a directory without AGENTS.override.md
+  AGENTS.local.md                        local project instructions, read after the shared files in each directory
+  CLAUDE.local.md                        read after AGENTS.local.md; identical copies in one directory load once
   .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
 `;
 

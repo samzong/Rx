@@ -95,8 +95,9 @@ export function loadInstructions(directories: string[], home: string = rxHome())
 
   const groups = [[join(home, "AGENTS.md")]];
   for (const directory of directories) {
-    const shared = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"].map((name) => join(directory, name)).find(present);
-    groups.push([...(shared ? [shared] : []), ...["AGENTS.local.md", "CLAUDE.local.md"].map((name) => join(directory, name))]);
+    const override = join(directory, "AGENTS.override.md");
+    const shared = present(override) ? [override] : ["AGENTS.md", "CLAUDE.md"].map((name) => join(directory, name));
+    groups.push([...shared, ...["AGENTS.local.md", "CLAUDE.local.md"].map((name) => join(directory, name))]);
   }
   return groups.flatMap((group) => {
     const contents = new Set<string>();
