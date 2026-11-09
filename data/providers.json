@@ -130,6 +130,21 @@
             }
           }
         },
+        "deepseek-flash": {
+          "openai-responses": {
+            "reasoning": {
+              "kind": "effort",
+              "levels": {
+                "off": "none",
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh",
+                "max": "max"
+              }
+            }
+          }
+        },
         "deepseek-v4-pro": {
           "openai-responses": {
             "reasoning": {
