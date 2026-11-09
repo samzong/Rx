@@ -95,9 +95,10 @@ export function loadInstructions(directories: string[], home: string = rxHome())
 
   const files = [join(home, "AGENTS.md")];
   for (const directory of directories) {
-    const file = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"].map((name) => join(directory, name)).find(present);
-    if (file) files.push(file);
-    files.push(join(directory, "AGENTS.local.md"));
+    for (const names of [["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"], ["AGENTS.local.md", "CLAUDE.local.md"]]) {
+      const file = names.map((name) => join(directory, name)).find(present);
+      if (file) files.push(file);
+    }
   }
   return files.filter(present).map((file) => {
     const text = expand(file);

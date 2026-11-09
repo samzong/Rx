@@ -10,7 +10,8 @@ Other path errors, including permission errors, stop context loading.
 
 Each project directory contributes at most one shared file and one local file.
 The shared file is `AGENTS.override.md`, else `AGENTS.md`, else `CLAUDE.md`.
-`AGENTS.local.md` follows it, so local rules take precedence in that directory. Users keep it out of Git.
+The local file is `AGENTS.local.md`, else `CLAUDE.local.md`.
+It follows the shared file, so local rules take precedence in that directory. Users keep it out of Git.
 Rx selects these files by name only.
 `$RX_HOME/AGENTS.md` is already private, so the global scope has no override or local file.
 
