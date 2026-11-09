@@ -26,6 +26,7 @@ export async function sessionConfigOptions(
   const available = [...await models.getAvailable()];
   const currentModel = formatModel(selection.model);
   if (!available.some((model) => formatModel(model) === currentModel)) available.push(selection.model);
+  available.sort((a, b) => a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : a.name.localeCompare(b.name));
   const options: acp.SessionConfigOption[] = [
     {
       id: "model",
@@ -33,7 +34,7 @@ export async function sessionConfigOptions(
       category: "model",
       type: "select",
       currentValue: currentModel,
-      options: available.map((model) => ({ value: formatModel(model), name: model.name })),
+      options: available.map((model) => ({ value: formatModel(model), name: `${model.provider}/${model.name}` })),
     },
     {
       id: "thinking",
