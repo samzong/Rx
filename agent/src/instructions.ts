@@ -93,15 +93,20 @@ export function loadInstructions(directories: string[], home: string = rxHome())
     return expanded.trim();
   };
 
-  const files = [join(home, "AGENTS.md")];
+  const groups = [[join(home, "AGENTS.md")]];
   for (const directory of directories) {
-    for (const names of [["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"], ["AGENTS.local.md", "CLAUDE.local.md"]]) {
-      const file = names.map((name) => join(directory, name)).find(present);
-      if (file) files.push(file);
-    }
+    const shared = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"].map((name) => join(directory, name)).find(present);
+    groups.push([...(shared ? [shared] : []), ...["AGENTS.local.md", "CLAUDE.local.md"].map((name) => join(directory, name))]);
   }
-  return files.filter(present).map((file) => {
-    const text = expand(file);
-    return { file: realpathSync(file), text };
-  }).filter(({ text }) => text.length > 0);
+  return groups.flatMap((group) => {
+    const contents = new Set<string>();
+    return group.filter(present).flatMap((file) => {
+      const text = expand(file);
+      const canonical = realpathSync(file);
+      const content = readFileSync(canonical, "utf8").trim();
+      if (!text || contents.has(content)) return [];
+      contents.add(content);
+      return [{ file: canonical, text }];
+    });
+  });
 }

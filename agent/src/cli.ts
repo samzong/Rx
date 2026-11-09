@@ -52,7 +52,7 @@ Files:
   AGENTS.override.md                     project instructions per directory, from the Git root through the working directory
   AGENTS.md or CLAUDE.md                 used in a directory without AGENTS.override.md
   AGENTS.local.md                        local project instructions, read after the shared file in each directory
-  CLAUDE.local.md                        used in a directory without AGENTS.local.md
+  CLAUDE.local.md                        read after AGENTS.local.md; identical copies load once
   .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
 `;
 

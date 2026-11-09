@@ -34,7 +34,7 @@ test("unprefixed references stop on unreadable files and inaccessible parent dir
   }
 });
 
-test("each directory adds its local file after its override, AGENTS.md, or nothing", () => {
+test("each directory adds its local files after its override, AGENTS.md, or nothing", () => {
   const directory = (files: Record<string, string>): string => {
     const cwd = tempDir();
     for (const [name, text] of Object.entries(files)) writeFileSync(join(cwd, name), text);
@@ -44,6 +44,7 @@ test("each directory adds its local file after its override, AGENTS.md, or nothi
   assert.deepEqual(texts(directory({ "AGENTS.override.md": "OVERRIDE", "AGENTS.md": "BASE", "AGENTS.local.md": "LOCAL" })), ["OVERRIDE", "LOCAL"]);
   assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL" })), ["BASE", "LOCAL"]);
   assert.deepEqual(texts(directory({ "AGENTS.local.md": "LOCAL" })), ["LOCAL"]);
-  assert.deepEqual(texts(directory({ "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL", "CLAUDE.local.md": "CLAUDE_LOCAL" })), ["CLAUDE", "LOCAL"]);
+  assert.deepEqual(texts(directory({ "CLAUDE.md": "CLAUDE", "AGENTS.local.md": "LOCAL", "CLAUDE.local.md": "CLAUDE_LOCAL" })), ["CLAUDE", "LOCAL", "CLAUDE_LOCAL"]);
   assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "CLAUDE.local.md": "CLAUDE_LOCAL" })), ["BASE", "CLAUDE_LOCAL"]);
+  assert.deepEqual(texts(directory({ "AGENTS.md": "BASE", "AGENTS.local.md": "LOCAL\n@./r.md\n", "CLAUDE.local.md": "LOCAL\n@./r.md", "r.md": "R" })), ["BASE", "LOCAL\nR"]);
 });

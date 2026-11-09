@@ -8,11 +8,11 @@ A missing directory or non-directory ancestor removes project scope.
 Resume and ACP load keep the saved working directory and global context, without searching surviving ancestors or substituting the caller's directory.
 Other path errors, including permission errors, stop context loading.
 
-Each project directory contributes at most one shared file and one local file.
+Each project directory contributes at most one shared file and two local files.
 The shared file is `AGENTS.override.md`, else `AGENTS.md`, else `CLAUDE.md`.
-The local file is `AGENTS.local.md`, else `CLAUDE.local.md`.
-It follows the shared file, so local rules take precedence in that directory. Users keep it out of Git.
-Rx selects these files by name only.
+The local files are `AGENTS.local.md` and then `CLAUDE.local.md`. If a file has the same trimmed content as an earlier file in the same directory, Rx skips it. Rx compares the content before it expands `@path` lines. A copy of `AGENTS.local.md` saved as `CLAUDE.local.md` therefore loads once.
+They follow the shared file, so local rules take precedence in that directory. Users keep them out of Git.
+Rx selects these files by name only. Their content decides only whether an identical file is skipped.
 `$RX_HOME/AGENTS.md` is already private, so the global scope has no override or local file.
 
 Local `@path` references occupy their own line outside fenced or indented code and expand in place.
