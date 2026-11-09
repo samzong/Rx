@@ -11,9 +11,7 @@ Other path errors, including permission errors, stop context loading.
 Each project directory contributes at most one shared file and one local file.
 The shared file is `AGENTS.override.md`, else `AGENTS.md`, else `CLAUDE.md`.
 `AGENTS.local.md` follows it, so local rules take precedence in that directory. Users keep it out of Git.
-An `AGENTS.override.md` that contains the codex-agents-local generated marker counts as absent.
-That file already copies `AGENTS.md` and `AGENTS.local.md`, so reading it would load the local rules twice.
-When `AGENTS.md` exists and the override is in sync, Codex and Rx get the same rules. Without `AGENTS.md`, Rx still falls back to `CLAUDE.md`, which the generated override omits.
+Rx selects these files by name only.
 `$RX_HOME/AGENTS.md` is already private, so the global scope has no override or local file.
 
 Local `@path` references occupy their own line outside fenced or indented code and expand in place.
