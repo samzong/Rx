@@ -41,6 +41,7 @@ test("identical steering input in one millisecond acknowledges only the consumed
   const client = acp.client()
     .onNotification("_lody/session/steer_applied", (value: unknown) => value, ({ params }) => { applied.push(params); });
   await client.connectWith(createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) }, sessions), async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     const agent = sessions.get(sessionId)!.agent;
     const steer = agent.steer.bind(agent);

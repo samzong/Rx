@@ -22,7 +22,10 @@ function harness(choose?: AcpOptions["choose"]) {
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => {
     updates.push(params);
   });
-  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, op);
+  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return op(ctx);
+  });
   const kinds = (sessionId: string) => updates.filter((u) => u.sessionId === sessionId).map((u) => u.update.sessionUpdate);
   return { faux, home, cwd, updates, run, kinds };
 }
@@ -53,7 +56,10 @@ test("a prompt streams thought, text, and tool updates, then replays them on loa
     replayed.push(params.update);
   });
   const app = createAcpApp({ home, models: fauxModels().models, choose: async () => ({ model: fauxModels().model, thinking: "off" }) });
-  await client.connectWith(app, (ctx) => ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
+  await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+  });
   assert.deepEqual(
     replayed.map((u) => u.sessionUpdate),
     ["user_message_chunk", "agent_message_chunk", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "agent_message_chunk", "available_commands_update"],

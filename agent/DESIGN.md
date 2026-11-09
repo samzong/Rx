@@ -61,7 +61,7 @@ built yet.
 | RX-MODEL-001 | The model is `--model`, then `RX_MODEL`, then `model` in `$RX_HOME/config.json`. In an rx launch, a missing `model` selects `RX_AGENT_PROVIDER`'s `defaultModel` with a stderr note, and a `model` of another provider, or one that cannot be resolved in that launch, falls back to `defaultModel` with a stderr note naming the reason. Without a launch, a missing or unresolvable model is an error. An unknown `thinking` name is always an error. ACP recovery of recognized levels uses the nearest supported level (pi-ai `clampThinkingLevel`) under RX-ACP-002. |
 | RX-PRIVATE-001 | Session logs live under `$RX_HOME` (default `~/.rx`) with `0700` directories and `0600` files. Session logs and eval tasks never enter this repository. |
 | RX-PERM-001 | Tools run with the user's permissions and no sandbox. This is an owner decision for the prototype; a sandbox replaces it in a later phase. |
-| RX-ACP-001 | ACP v1 uses SDK 2.0.2 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. New and load accept startup choices over current launch defaults. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
+| RX-ACP-001 | ACP v1 uses SDK 2.5.0 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. New and load accept startup choices over current launch defaults. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
 | RX-ACP-002 | Each model exposes only its pi-ai thinking levels. Switching models clamps thinking to the new model and resets Fast. Startup session metadata normalizes recognized but unsupported thinking levels to the nearest supported level (pi-ai `clampThinkingLevel`) and notifies the actual configuration. Explicit setters and malformed thinking values remain strict. Boolean controls require the client capability. Lody receives per-model levels and Fast support through its versioned metadata because standard configuration options describe only the current model. |
 | RX-ACP-003 | Fast is available only for the native openai-codex subscription endpoint and exact models supported by the Codex 0.163.0 catalog and current Speed documentation. Rx retains streamSimple and injects service_tier: priority through onPayload. Other providers and endpoints receive no Fast injection. |
 | RX-ACP-004 | After each measured assistant response, ACP reports the latest input, output, cache-read, and cache-write token sum with that model's context window. These values are a recent context measurement, not cumulative session usage or an estimate of unsent input. Standard costs are omitted. Load replays the latest matching measurement after the latest checkpoint or clearing selection. Summary requests do not report working-context usage. Measurements before a projection change are no longer current. Clearing emits no estimated usage. Image input requires the current model's image capability. |
@@ -110,7 +110,7 @@ See [Instructions and skills](docs/instructions-and-skills.md) for context loadi
 Configuration changes require an idle session and finish validation and snapshot construction before mutation.
 The session owns model, thinking, and Fast for the next model call.
 Lody supplies saved choices through [startup metadata](docs/lody-acp.md) or standard `configOptions`.
-SDK 2.0.2 has no legacy model setter.
+SDK 2.5.0 has no legacy model setter.
 Optional `_meta.lody.modelCapabilities` describes each available model before selection because standard options describe only the current model.
 The map and controls share pi-ai metadata and Fast policy.
 
@@ -125,7 +125,7 @@ Fast requests priority service and can use more subscription allowance ([Speed d
 The server chooses the actual tier. A successful priority request can receive default service and does not prove Fast delivery.
 If Codex changes supported tiers, review the model list.
 The strongest alternative is the low-level `stream` API with `serviceTier`.
-Rx retains `streamSimple` for thinking-level conversion and `onPayload` forwarding in pi-ai 1.4.0.
+Rx retains `streamSimple` for thinking-level conversion and `onPayload` forwarding in pi-ai 1.5.0.
 If the dependency changes, run a payload probe to test that forwarding.
 
 Lody sends workspace MCP servers through ACP new and load.

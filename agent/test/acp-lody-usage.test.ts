@@ -47,7 +47,10 @@ function harness(responses: AssistantMessage[], window?: number, selected?: { mo
     .onNotification(SESSION_USAGE_METHOD, (params) => params as SessionUsageUpdate, ({ params }) => { usage.push(params); });
   const app = createAcpApp({ home, models, choose: async () => ({ model: window ? { ...model, contextWindow: window } : model, thinking: "off" }) });
   const prompt = (ctx: acp.ClientContext, sessionId: string, text = "continue") => ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
-  return { home, cwd, model, requests, updates, usage, prompt, run: <T>(fn: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, fn) };
+  return { home, cwd, model, requests, updates, usage, prompt, run: <T>(fn: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return fn(ctx);
+  }) };
 }
 
 test("ACP advertises and sends per-request accounting across tools, prompts, and model switches", async () => {

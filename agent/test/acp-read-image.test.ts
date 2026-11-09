@@ -20,7 +20,10 @@ function harness(choose?: AcpOptions["choose"]) {
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => {
     updates.push(params);
   });
-  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, op);
+  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return op(ctx);
+  });
   const kinds = (sessionId: string) => updates.filter((u) => u.sessionId === sessionId).map((u) => u.update.sessionUpdate);
   return { faux, home, cwd, updates, run, kinds };
 }
@@ -56,6 +59,9 @@ test("read images reach the model and ACP tool cards, persist, and replay on loa
   const { models, model } = fauxModels();
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { replay.push(params.update); });
-  await client.connectWith(app, (ctx) => ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
+  await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+  });
   assert.deepEqual(replay.find((update) => update.sessionUpdate === "tool_call_update"), completed);
 });

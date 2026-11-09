@@ -18,7 +18,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | Skill metadata and prompt catalog text | `pi-coding-agent` | `src/skills.ts` | No plan. Rx uses 4 functions from this package, so removing it is the smallest dependency change. No decision yet. |
 | Token estimate and summary request | `pi-coding-agent` | `src/context-messages.ts`, `src/context.ts` | Same package and plan as the row above. |
 | MCP client: stdio and Streamable HTTP transports, content conversion | `pi-mcp` | `src/mcp.ts` | No. RX-MCP-001 names pi-mcp as the MCP client. |
-| Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.0.2 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.0.2. |
+| Agent Client Protocol types and wire format | `@agentclientprotocol/sdk` 2.5.0 | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not a pi package. RX-ACP-001 pins SDK 2.5.0. |
 | Historical content by original ordinal: `recall_log`, current session only | Rx | `src/session-history.ts` | Not applicable. |
 | Tools: `read`, `write`, `edit`, `bash`, `todo`, local image input | Rx | `src/tools.ts`, `src/todo.ts` | Not applicable. |
 | Task lists and structured questions: `todo`, ACP `ask_user` | Rx | `src/todo.ts`, `src/acp-elicitation.ts`, `src/acp-messages.ts` | [Lody ACP contract](docs/lody-acp.md). |
@@ -32,7 +32,7 @@ borrowed package and the tracking location for a capability that does not exist.
 | CLI, REPL, print mode | Rx | `src/cli.ts`, `src/terminal.ts` | Not applicable. |
 | Provider handoff validation and transport error capture | Rx | `src/rx-provider.ts`, `src/transport-errors.ts` | Not applicable. |
 | ACP server: session controls, usage reports, cancel | Rx | `src/acp.ts`, `src/acp-config.ts`, `src/acp-messages.ts`, `src/acp-usage.ts` | Not applicable. |
-| Lody extensions: steering, startup configuration, worktree project, usage, fork, turn identity | Rx | `src/acp-lody.ts`, `src/acp-session-usage.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.0.2. |
+| Lody extensions: steering, startup configuration, worktree project, usage, fork, turn identity | Rx | `src/acp-lody.ts`, `src/acp-session-usage.ts`, [contract](docs/lody-acp.md) | Uses pi-agent-core steering and ACP SDK 2.5.0. |
 | Fast service tier injection | Rx | `src/acp-fast.ts` | Not applicable. |
 | Sandbox for tool execution | Not built | Tools run with your permissions (RX-PERM-001) | `ROADMAP.md`, after phase 1. |
 | Eval set and runner | Not built | No score exists for a change in behavior | `ROADMAP.md`, phase 1 B. |

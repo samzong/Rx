@@ -19,7 +19,10 @@ function harness() {
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => {
     updates.push(params);
   });
-  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, op);
+  const run = <T>(op: (ctx: acp.ClientContext) => Promise<T>) => client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return op(ctx);
+  });
   return { faux, home, cwd, updates, run };
 }
 
@@ -50,7 +53,10 @@ test("ACP advertises skills as commands, expands /name prompts, and replays the 
     replayed.push(params.update);
   });
   const app = createAcpApp({ home, models: fauxModels().models, choose: async () => ({ model: fauxModels().model, thinking: "off" }) });
-  await client.connectWith(app, (ctx) => ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] }));
+  await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+    return ctx.request(acp.methods.agent.session.load, { sessionId, cwd, mcpServers: [] });
+  });
   const user = replayed.find((u) => u.sessionUpdate === "user_message_chunk");
   assert.ok(user?.sessionUpdate === "user_message_chunk" && user.content.type === "text");
   assert.equal(user.content.text, "/greet matey");

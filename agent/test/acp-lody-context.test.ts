@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as acp from "@agentclientprotocol/sdk/unstable";
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
 import { createAcpApp } from "../src/acp.ts";
 import { SessionLog } from "../src/session-log.ts";
 import { tempDir } from "./helpers.ts";
@@ -37,6 +37,7 @@ test("steering delivered through automatic compaction is acknowledged and replay
     })
     .onNotification("_lody/session/steer_applied", (value: unknown) => value, ({ params }) => { applied.push(params); });
   await client.connectWith(createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) }), async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     const prompt = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "historical evidence ".repeat(13000) }] });
     await tool;
@@ -88,12 +89,21 @@ test("pruning preserves steering confirmation and replay without a summary", asy
   waiting.usage.input = 60000;
   waiting.usage.output = waiting.usage.cacheRead = waiting.usage.cacheWrite = 0;
   const marker = "STEER_THROUGH_PRUNING";
-  faux.setResponses([waiting, (context, _options, _state, called) => {
-    assert.equal(called.maxTokens, 8192);
-    assert.ok(JSON.stringify(context.messages).includes(marker));
-    assert.ok(JSON.stringify(context.messages).includes("[cleared, log seq"));
-    return fauxAssistantMessage(marker);
-  }]);
+  let requests = 0;
+  models.streamSimple = (selected, context) => {
+    if (requests > 0) {
+      assert.equal(selected.maxTokens, 8192);
+      assert.ok(JSON.stringify(context.messages).includes(marker));
+      assert.ok(JSON.stringify(context.messages).includes("[cleared, log seq"));
+    }
+    const response = { ...(requests++ === 0 ? waiting : fauxAssistantMessage(marker)), api: selected.api, provider: selected.provider, model: selected.id };
+    const stream = createAssistantMessageEventStream();
+    queueMicrotask(() => {
+      stream.push({ type: "done", reason: response.stopReason === "toolUse" ? "toolUse" : "stop", message: response });
+      stream.end(response);
+    });
+    return stream;
+  };
   let toolStarted!: () => void;
   const tool = new Promise<void>((resolve) => { toolStarted = resolve; });
   const applied: unknown[] = [];
@@ -105,6 +115,7 @@ test("pruning preserves steering confirmation and replay without a summary", asy
     })
     .onNotification("_lody/session/steer_applied", (value: unknown) => value, ({ params }) => { applied.push(params); });
   await client.connectWith(createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) }), async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     await ctx.request(acp.methods.agent.session.load, { sessionId: log.id, cwd, mcpServers: [] });
     const prompt = ctx.request(acp.methods.agent.session.prompt, { sessionId: log.id, prompt: [{ type: "text", text: "wait then answer" }] });
     await tool;

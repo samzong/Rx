@@ -11,7 +11,7 @@ Raw exception text, stacks, headers, URLs, and hostnames are excluded because th
 Unknown codes are omitted. An error without recognized fields reports that its cause is unavailable.
 The log format and version stay unchanged. Existing logs cannot recover causes that were already discarded.
 
-OpenAI-compatible, Codex HTTP, Anthropic, Mistral, and pi-messages requests use the supported fetch hook in pi-ai 1.4.0.
+OpenAI-compatible, Codex HTTP, Anthropic, Mistral, and pi-messages requests use the supported fetch hook in pi-ai 1.5.0.
 Google, Vertex, Bedrock, WebSocket failures, and errors while reading a response body keep their existing diagnostics.
 Patching pi-ai to expose the original SDK exception is the strongest alternative.
 The public fetch hook avoids a dependency fork and gives Rx a narrow boundary for secret filtering.

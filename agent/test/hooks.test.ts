@@ -53,6 +53,7 @@ test("pre denial and post failure preserve per-call execution, output, status, a
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     const response = await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "mixed checks" }] });
     assert.equal(response.stopReason, "end_turn");
@@ -98,6 +99,7 @@ test("chained pre rewrites are revalidated, executed, logged, shown on the same 
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "rewrite" }] });
     const rewritten = records().filter((entry) => entry.tool_use_id === "rewrite");
@@ -140,6 +142,7 @@ test("hook contexts have rx origin, enter the model once, and replay as labeled 
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { updates.push(params.update); });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "user request" }] });
     const loaded = SessionLog.open(home, sessionId);
@@ -169,6 +172,7 @@ test("a rejected ACP prompt has no model access or accepted user record, even af
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   const client = acp.client().onNotification(acp.methods.client.session.update, ({ params }) => { notices.push(params.update); });
   await client.connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
     const prompt = (text: string) => ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
     await assert.rejects(prompt("fail"));
@@ -207,6 +211,7 @@ for (const event of ["UserPromptSubmit", "Stop"]) {
     faux.setResponses([fauxAssistantMessage("completed before Stop")]);
     const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
     await acp.client().connectWith(app, async (ctx) => {
+      await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
       const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [] });
       const pending = ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "cancel hook" }] });
       const deadline = Date.now() + 5_000;
@@ -234,6 +239,7 @@ test("MCP calls use the same preflight and final-result boundaries", async () =>
   ]);
   const app = createAcpApp({ home, models, choose: async () => ({ model, thinking: "off" }) });
   await acp.client().connectWith(app, async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request(acp.methods.agent.session.new, { cwd, mcpServers: [{ name: "fixture", command: process.execPath, args: [new URL("./fixtures/mcp-server.ts", import.meta.url).pathname], env: [] }] });
     assert.equal((await ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text: "MCP checks" }] })).stopReason, "end_turn");
     const results = SessionLog.open(home, sessionId).messages.filter((message) => message.role === "toolResult");

@@ -14,7 +14,7 @@ export async function configurationSnapshot(models: Models, selection: AcpSelect
     const model = value === formatModel(selection.model) ? selection.model : models.getModel(value.slice(0, slash), value.slice(slash + 1));
     return model ? [[value, { effortValues: getSupportedThinkingLevels(model), fastMode: supportsFast(model) }]] : [];
   }));
-  return { configOptions, _meta: lodyMeta({ modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.4.0;codex/0.163.0", models: capabilities } }) };
+  return { configOptions, _meta: lodyMeta({ modelCapabilities: { version: 1, sourceVersion: "pi-ai/1.5.0;codex/0.163.0", models: capabilities } }) };
 }
 
 export async function sessionConfigOptions(

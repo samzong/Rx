@@ -1,7 +1,7 @@
 # Lody ACP extensions
 
 This document owns RX-ACP-005 and RX-ACP-006 under the [agent design contract](../DESIGN.md).
-Rx uses ACP SDK 2.0.2 and imports shared types and method names from
+Rx uses ACP SDK 2.5.0 and imports shared types and method names from
 [`acp-extension-core` 0.3.0](https://github.com/LodyAI/acp-extension-core/tree/ea90d0b).
 `src/acp-lody.ts` constructs `agentCapabilities._meta.lody` in one place.
 Rx advertises only these capabilities:
@@ -23,7 +23,7 @@ The selected model must support any supplied images.
 Missing, idle, cancelled, or manually compacting sessions reject the request with `invalidRequest`.
 A duplicate pending `steerId` also fails with `invalidRequest`.
 
-Rx calls pi-agent-core 1.4.0 `Agent.steer()` without starting another ACP prompt.
+Rx calls pi-agent-core 1.5.0 `Agent.steer()` without starting another ACP prompt.
 The current model call or tool finishes before pi consumes the queue.
 The queued message enters the append-only log as an `acp` user message.
 `session/load` replays it as user input through the existing history conversion.
@@ -119,7 +119,7 @@ Rx receives one completion per request directly from its request owners, so it n
 If a future source repeats or corrects completion snapshots, add operation identity before accounting for that source.
 
 The core package depends on SDK `^1.4.0` and exposes TypeScript source through its `types` field.
-The lockfile includes both SDK versions. The core package imports SDK types only, so the Bun runtime bundle uses SDK 2.0.2 only.
+The lockfile includes both SDK versions. The core package imports SDK types only, so the Bun runtime bundle uses SDK 2.5.0 only.
 Core source uses syntax that Node cannot strip. TypeScript checks the complete dependency graph without `erasableSyntaxOnly`.
 The typecheck command also applies Node's `stripTypeScriptTypes` in strip mode to all Rx source, script, test, and eval files.
 
@@ -131,7 +131,7 @@ Load the session and complete another prompt. Prior scopes remain separate from 
 
 ## Forks and turn identity
 
-ACP SDK 2.0.2 exposes `session/fork` through its public `/unstable` entry point. The dependency version does not change.
+ACP SDK 2.5.0 exposes `session/fork` through its public `/unstable` entry point.
 
 Initialization declares `sessionCapabilities.fork: {}` and `_meta.lody.forkAtTurn: {version: 1}` under `agentCapabilities`.
 At the start of each ACP prompt, Rx appends a versioned `turn` record and sends an empty `agent_message_chunk`.
@@ -233,7 +233,7 @@ Rx has no native background tasks that wake the agent. A shell process that a to
 
 The stdio transport writes the successful new, load, or fork response before it writes the first idle update.
 This order matters because Lody ignores activity updates until it assigns its ACP session ID.
-SDK 2.0.2 does not expose a handler callback after a response write.
+SDK 2.5.0 does not expose a handler callback after a response write.
 A timer is a simpler alternative, but it cannot bind the update to that write.
 The transport uses the request ID to pair each successful establishment response with its idle update.
 Failed establishment sends no idle update. Resume remains unsupported.
@@ -252,7 +252,7 @@ Cancel another turn and answer an `ask_user` question. Each completed turn must 
 ## Subscription rate limits
 
 Rx advertises `rateLimits: {version: 1}` for push only.
-For working and summary requests, pi-ai 1.4.0 `onProviderStreamEvent` supplies `codex.rate_limits` events over WebSocket or SSE.
+For working and summary requests, pi-ai 1.5.0 `onProviderStreamEvent` supplies `codex.rate_limits` events over WebSocket or SSE.
 `onResponse` also supplies SSE headers. Rx preserves pi-ai's default WebSocket-first transport and cached-context continuation.
 Only `openai-codex` with API `openai-codex-responses` at `https://chatgpt.com/backend-api` supplies quota.
 Other providers, including Tokener, emit no quota push and return `{rateLimits: []}` to queries.

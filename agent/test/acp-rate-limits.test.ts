@@ -64,6 +64,7 @@ test("ACP quotas preserve secondary windows and identities without inventing mal
   const updates: RateLimitsSnapshot[] = [];
   const client = acp.client().onNotification(LODY_EXTENSION_METHODS.rateLimitsUpdate, (value) => value as RateLimitsSnapshot, ({ params }) => { updates.push(params); });
   await client.connectWith(createAcpApp({ models, home: tempDir(), choose: async () => ({ model, thinking: "off" }) }), async (ctx) => {
+    await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
     const { sessionId } = await ctx.request("session/new", { cwd: tempDir(), mcpServers: [] });
     for (; current < observations.length; current++) {
       await ctx.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "quota" }] });
@@ -127,6 +128,7 @@ test("non-subscription providers and custom endpoints never expose quotas", asyn
       const client = acp.client().onNotification(LODY_EXTENSION_METHODS.rateLimitsUpdate, (value) => value as RateLimitsSnapshot, ({ params }) => { updates.push(params); });
       const app = createAcpApp({ models, home: tempDir(), choose: async () => ({ model: selected, thinking: "off" }) });
       await client.connectWith(app, async (ctx) => {
+        await ctx.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
         const { sessionId } = await ctx.request("session/new", { cwd: tempDir(), mcpServers: [] });
         assert.equal((await ctx.request<{ stopReason: string }, object>("session/prompt", { sessionId, prompt: [{ type: "text", text: "quota" }] })).stopReason, "end_turn");
         assert.deepEqual(updates, []);
