@@ -49,7 +49,9 @@ Files:
   $RX_HOME/mcp.json                      MCP servers, using the mcpServers object
   $RX_HOME/hooks.json                    user command checks; see agent/docs/hooks.md
   $RX_HOME/device-id                     installation id sent to providers that require one
-  AGENTS.md or CLAUDE.md                 project instructions from the Git root through the working directory
+  AGENTS.override.md                     project instructions per directory, from the Git root through the working directory
+  AGENTS.md or CLAUDE.md                 used in a directory without AGENTS.override.md
+  AGENTS.local.md                        local project instructions, read after the shared file in each directory
   .agents/skills, ~/.agents/skills       project skills (nearest first), then global skills
 `;
 
