@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Type } from "typebox";
-import { type Context, type Tool, validateToolArguments } from "@earendil-works/pi-ai";
+import { type Context, type JsonObject, type Tool, validateToolArguments } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createRxAgent } from "../src/agent.ts";
 import { connectMcp, mcpStreamOptions } from "../src/mcp.ts";
@@ -30,10 +30,10 @@ function response(api: Handoff["api"]): Response {
   return new Response(events.map((event) => `${api === "anthropic-messages" ? `event: ${event.type}\n` : ""}data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 }
 
-function provider(api: Handoff["api"]) {
+function provider(api: Handoff["api"], id = "fixture") {
   const models = builtinModels();
-  applyHandoff(models, { id: "fixture", name: "Fixture", api, baseUrl: "http://127.0.0.1:9", env: "RX_MCP_SCHEMA_TEST_KEY", models: [{ id: "probe", contextWindow: 200000, reasoning: false }], defaultModel: "probe" });
-  return { models, model: models.getModel("fixture", "probe")! };
+  applyHandoff(models, { id, name: "Fixture", api, baseUrl: "http://127.0.0.1:9", env: "RX_MCP_SCHEMA_TEST_KEY", models: [{ id: "probe", contextWindow: 200000, reasoning: false }], defaultModel: "probe" });
+  return { models, model: models.getModel(id, "probe")! };
 }
 
 test("MCP reference targets survive provider serialization and object validation", async () => {
@@ -93,4 +93,68 @@ test("Anthropic inline tool definitions retain their own reference targets after
   const addition = body.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : []).find((block: any) => block.type === "tool_addition");
   assert.deepEqual(addition.tool.definition.input_schema.$defs, nextDefinitions);
   assert.deepEqual(body.metadata, { user_id: "fixture" });
+});
+
+test("Tokener MCP schemas preserve literal $ref arguments and constraints without changing other providers", async () => {
+  const input = {
+    type: "object",
+    properties: { item: { $ref: "#/$defs/Item" }, copy: { $ref: "#/$defs/Item/properties/$ref" } },
+    required: ["item"],
+    $defs: { Item: {
+      type: "object", properties: { $ref: { type: "string", minLength: 2 } }, required: ["$ref"], additionalProperties: false,
+      patternProperties: { "^\\$ref$": { maxLength: 5 } },
+      examples: [{ properties: { $ref: { type: "number" } } }],
+    } },
+  };
+  const original = JSON.stringify(input);
+  const tool: Tool = { name: "mcp__fixture__ref", description: "Read a reference", parameters: Type.Unsafe(input) };
+  const ordinary = { ...tool, name: "mcp__fixture__ordinary", parameters: Type.Unsafe(schema) };
+  const context: Context = { tools: [tool, ordinary, { ...tool, name: "builtin_reference" }], messages: [{ role: "user", content: "Inspect tools", timestamp: 1 }] };
+  for (const api of ["anthropic-messages", "openai-completions", "openai-responses"] as const) {
+    const { model } = provider(api);
+    const capture = async (tokener: boolean) => {
+      const { models, model: selected } = provider(api, tokener ? "tokener" : "fixture");
+      let body: Record<string, any> | undefined;
+      const options = mcpStreamOptions(selected, context, {
+        apiKey: "local-fixture", maxRetries: 0,
+        fetch: async (_url, init) => { body = JSON.parse(init!.body as string); return response(api); },
+      });
+      const result = await models.streamSimple(selected, context, options).result();
+      assert.equal(result.stopReason, "stop", result.errorMessage ?? "Provider stream failed");
+      assert.ok(body);
+      return body;
+    };
+    const before = await capture(false);
+    const after = await capture(true);
+    const definition = (body: Record<string, any>) => {
+      const sent = body.tools[0];
+      return sent.input_schema ?? sent.parameters ?? sent.function.parameters;
+    };
+    const sent = definition(after);
+    assert.equal(JSON.stringify(after.tools.slice(1)), JSON.stringify(before.tools.slice(1)));
+    assert.equal(Object.hasOwn(sent.$defs.Item.properties, "$ref"), false);
+    assert.deepEqual(sent.$defs.Item.examples, input.$defs.Item.examples);
+    assert.deepEqual(sent.$defs.Item.required, ["$ref"]);
+    assert.equal(JSON.stringify(input), original);
+    const valid: JsonObject[] = [{ item: { $ref: "abc" }, copy: "ab" }, { item: { $ref: "abcd" } }];
+    const invalid: JsonObject[] = [{ item: {} }, { item: { $ref: "a" } }, { item: { $ref: "abcdef" } }, { item: { $ref: "abc", "$ref\n": "abc" } }, { item: { $ref: "abc", extra: 1 } }, { item: { $ref: "abc" }, copy: "a" }];
+    for (const parameters of [input, sent]) {
+      const candidate = { ...tool, parameters: Type.Unsafe(parameters) };
+      for (const args of valid) assert.deepEqual(validateToolArguments(candidate, { type: "toolCall", id: "ok", name: tool.name, arguments: args }), args);
+      for (const args of invalid) assert.throws(() => validateToolArguments(candidate, { type: "toolCall", id: "bad", name: tool.name, arguments: args }));
+    }
+    assert.equal(JSON.stringify(await capture(true)), JSON.stringify(after));
+    assert.equal(JSON.stringify(await capture(false)), JSON.stringify(before));
+    if (api === "anthropic-messages") {
+      const root = { type: "object", properties: { $ref: { type: "string" } }, required: ["$ref"], additionalProperties: false };
+      const payload = { messages: [{ content: [{ type: "tool_addition", tool: { type: "tool_definition", definition: { name: tool.name, input_schema: root } } }] }] };
+      const options = mcpStreamOptions({ ...model, provider: "tokener" }, context, {});
+      const rewritten = await options.onPayload!(payload, model) as typeof payload;
+      const parameters = rewritten.messages[0]!.content[0]!.tool.definition.input_schema;
+      assert.equal(Object.hasOwn(parameters.properties, "$ref"), false);
+      assert.deepEqual(validateToolArguments({ ...tool, parameters: Type.Unsafe(parameters) }, { type: "toolCall", id: "inline", name: tool.name, arguments: { $ref: "abc" } }), { $ref: "abc" });
+      assert.deepEqual(root.properties, { $ref: { type: "string" } });
+      assert.throws(() => validateToolArguments({ ...tool, parameters: Type.Unsafe(root) }, { type: "toolCall", id: "newline", name: tool.name, arguments: { $ref: "abc", "$ref\n": "abc" } }));
+    }
+  }
 });

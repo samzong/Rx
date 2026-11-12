@@ -61,13 +61,31 @@ It does not load pi's extension runtime, project configuration, resource tools, 
 MCP schemas keep local references and their `$defs` and `definitions` tables.
 With pi-ai 1.5.0, Rx restores those tables in non-strict Anthropic tool definitions after provider serialization.
 This applies to initial tools and inline tool additions, including same-name redefinitions.
-Other providers keep their existing serialization.
+Other providers keep their existing serialization, except for the Tokener workaround below.
 Local argument validation still uses the complete MCP schema.
 
 Rx does not inline references because recursive schemas cannot be fully expanded.
 The adapter matches each serialized definition to its original properties object.
 The provider contract tests cover this pi-ai behavior and must pass after a dependency update.
 Root-level references and other root fields that pi-ai removes keep their existing behavior.
+
+The Tokener gateway fails requests for some models when an MCP schema declares a property named `$ref`.
+For Tokener only, `src/mcp-tokener.ts` moves that declaration to an anchored `patternProperties` entry after provider serialization.
+This applies only to MCP tools, including inline tool additions.
+The adapter preserves required fields, existing patterns, and local JSON Pointer references to moved declarations.
+It traverses schema keywords and leaves example, default, enum, and constant data unchanged.
+The transformation is deterministic and does not add changing text to the prompt cache prefix.
+Local validation, hooks, session logs, ACP updates, and MCP calls keep the original schema and argument names.
+
+Dropping the property is simpler but removes its constraints and its schema description.
+Renaming the argument also changes model history and requires schema-directed conversion before execution.
+Skipping the tool removes dashboard creation and updates from the session.
+The anchored pattern preserves the parameter name and its constraints.
+Under ECMA-262, `^\$ref$` matches only `$ref`.
+Downstream validators with Python or PCRE-style `$` semantics can also accept `$ref\n`.
+Local validation still enforces the original rules before tool execution.
+After [ai-gateway#282](https://github.com/langgenius/ai-gateway/issues/282) is fixed and the original schemas pass live requests, remove this adapter.
+Remove the import and call in `mcp.ts`, delete `mcp-tokener.ts`, and remove the `Tokener MCP schemas preserve literal $ref arguments and constraints without changing other providers` test.
 
 ## ACP and session lifetime
 
