@@ -8,6 +8,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { McpAbortError, McpClient, McpConnectionClosedError, McpError, McpHttpError, McpTimeoutError, StdioTransport, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 import { Type } from "typebox";
+import { tokenerMcpStreamOptions } from "./mcp-tokener.ts";
 import { VERSION } from "./version.ts";
 
 export interface McpConnection {
@@ -41,6 +42,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function mcpStreamOptions(model: Model<Api>, context: Context, options: SimpleStreamOptions): SimpleStreamOptions {
+  options = tokenerMcpStreamOptions(model, options);
   if (model.api !== "anthropic-messages") return options;
   const schemas = new Map<object, { name: string; parameters: Record<string, unknown> }>();
   const tools = [...context.tools ?? [], ...context.messages.flatMap((message) => message.role === "system" ? message.toolsAdded ?? [] : [])];
