@@ -112,54 +112,12 @@ fn pi_purge_reports_unmarked_and_user_edited_residue() {
 }
 
 #[test]
-fn pi_plan_uses_owned_alias_and_purge_preserves_unmarked_provider() {
+fn pi_alias_plan_and_purge_preserve_unowned_json_bytes() {
     let (dir, paths) = temp_paths();
     let agent_dir = dir.path().join("pi");
     fs::create_dir(&agent_dir).unwrap();
     let models_path = agent_dir.join("models.json");
-    let original = json!({
-        "api": "openai-completions",
-        "apiKey": "$USER_KEY",
-        "compat": { "sendSessionAffinityHeaders": true },
-        "models": [{ "id": "user/model" }]
-    });
-    write_json(&models_path, &json!({ "providers": { "acme": original }, "other": true }));
-    let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"nested/model"}]}"#);
-    fs::write(&paths.config, fixture_config(&base_url)).unwrap();
-    let env = isolated(&[
-        ("ACME_API_KEY", "sk-test"),
-        ("PI_CODING_AGENT_DIR", agent_dir.to_str().unwrap()),
-    ]);
-
-    for _ in 0..2 {
-        let plan = launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
-        assert_eq!(plan.args, os(&["--models", "rx-acme/**", "--provider", "rx-acme"]));
-        let document: Value = read_json(&models_path);
-        assert_eq!(document["providers"]["acme"], original);
-        assert_eq!(document["providers"]["rx-acme"]["apiKey"], "$ACME_API_KEY");
-        assert_eq!(document["providers"]["rx-acme"]["models"][0]["id"], "nested/model");
-    }
-    fs::write(&paths.config, format!("{}model = \"nested/model\"\n", fixture_config(&base_url)))
-        .unwrap();
-    let plan = launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
-    assert_eq!(plan.args, os(&["--models", "rx-acme/**", "--model", "rx-acme/nested/model"]));
-    server.join().unwrap();
-
-    assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Removed);
-    assert_eq!(
-        read_json::<Value>(&models_path),
-        json!({ "providers": { "acme": original }, "other": true })
-    );
-    assert!(!agent_dir.join("models.json.rx-catalog.json").exists());
-}
-
-#[test]
-fn pi_launch_and_purge_preserve_unowned_json_bytes() {
-    let (dir, paths) = temp_paths();
-    let agent_dir = dir.path().join("pi");
-    fs::create_dir(&agent_dir).unwrap();
-    let models_path = agent_dir.join("models.json");
-    let original_entry = r#""a\u0063me" \t: { "z" : 1.2000e+003, "api":"openai-completions", "path":"a\/b\u0020c", "compat" : {"sendSessionAffinityHeaders":true}, "a":-0.0 }"#.replace("\\t", "\t");
+    let original_entry = r#""a\u0063me" \t: { "z" : 1.2000e+003, "api":"openai-completions", "apiKey":"$USER_KEY", "models":[{"id":"user/model"}], "path":"a\/b\u0020c", "compat" : {"sendSessionAffinityHeaders":true}, "a":-0.0 }"#.replace("\\t", "\t");
     let root_before = r#""before" : {"number":2.000e-2, "escaped":"\u0041\/"}"#;
     let root_after = r#""after"\t: [ 3e+004, "\u0062" ]"#.replace("\\t", "\t");
     let neighbor = r#""neighbor" : { "path":"\/", "models" : [] }"#;
@@ -175,6 +133,9 @@ fn pi_launch_and_purge_preserve_unowned_json_bytes() {
     for _ in 0..2 {
         let plan = launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
         assert_eq!(plan.args, os(&["--models", "rx-acme/**", "--provider", "rx-acme"]));
+        let document: Value = read_json(&models_path);
+        assert_eq!(document["providers"]["rx-acme"]["apiKey"], "$ACME_API_KEY");
+        assert_eq!(document["providers"]["rx-acme"]["models"][0]["id"], "nested/model");
         let merged = fs::read(&models_path).unwrap();
         for untouched in [&original_entry, root_before, &root_after, neighbor] {
             assert!(
@@ -183,9 +144,14 @@ fn pi_launch_and_purge_preserve_unowned_json_bytes() {
             );
         }
     }
+    fs::write(&paths.config, format!("{}model = \"nested/model\"\n", fixture_config(&base_url)))
+        .unwrap();
+    let plan = launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
+    assert_eq!(plan.args, os(&["--models", "rx-acme/**", "--model", "rx-acme/nested/model"]));
     server.join().unwrap();
     assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Removed);
     assert_eq!(fs::read(&models_path).unwrap(), original);
+    assert!(!agent_dir.join("models.json.rx-catalog.json").exists());
 }
 
 #[test]
