@@ -269,6 +269,12 @@
       "name": "Tokener",
       "endpoint": "https://api.tokener.ai/v1",
       "env": "TOKENER_API_KEY"
+    },
+    {
+      "id": "magpie",
+      "name": "Magpie",
+      "endpoint": "http://127.0.0.1:3425/v1",
+      "env": "MAGPIE_API_KEY"
     }
   ]
 }

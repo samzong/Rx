@@ -121,10 +121,10 @@ pub(crate) fn logout(paths: &Paths, provider: &str) -> Result<bool> {
     let mut keys = load_keys(paths)?;
     let removed = keys.remove(provider).is_some();
     if removed {
-        if config.default_provider.as_deref() == Some(provider) {
-            config.default_provider = None;
-        }
         save_keys(paths, &keys)?;
+    }
+    if config.default_provider.as_deref() == Some(provider) {
+        config.default_provider = None;
         save_config(paths, &config)?;
     }
     Ok(removed)

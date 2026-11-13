@@ -85,3 +85,31 @@ endpoint. If Claude Code needs a separate Anthropic-compatible origin, set
 `providers.json`, or `[provider.<id>] anthropic_base` in `rx.toml`). Codex,
 OpenCode, and Pi still use `endpoint`. Their compatibility is the user's
 responsibility and does not lower the bundled catalog admission bar.
+
+## Local Magpie gateway
+
+With Magpie running, use `rx providers use magpie` or
+`rx --provider magpie <harness>`. Rx uses `http://127.0.0.1:3425/v1` without a key
+prompt or `rx.keys` write. `rx providers login magpie` also selects it.
+For another port, set `[provider.magpie] base_url` in `~/.recall/rx.toml`.
+Rx does not start Magpie, read its configuration, or discover ports.
+
+The public token `magpie` applies only to bundled Magpie with literal loopback
+HTTP/HTTPS endpoints, including any explicit `anthropic_base`. Existing stored
+and environment credential rules take precedence. The default environment key
+is `MAGPIE_API_KEY`. Remote endpoints and other provider identities need their
+own credentials. Only Magpie's default bundled endpoint permits HTTP. Logout clears
+selection and Rx-owned data, not gateway access. Without a provider argument,
+`rx providers models update` skips Magpie when it uses only the public local
+token. Use `rx providers models update magpie` to refresh it explicitly.
+
+The live catalog retains complete model IDs, including nested slashes.
+No reasoning capability is declared: rx-agent offers Thinking `off` and no Fast.
+This does not prove that upstream reasoning is disabled. Session affinity and
+all models' tool and reasoning behavior remain unverified.
+
+Pi preserves an unmarked `providers.magpie` byte-for-byte and uses `rx-magpie`.
+An unowned or edited alias stops launch. Logout removes only unchanged Rx-owned
+entries. Matching legacy Rx entries keep their native ID and upgrade to marker
+v2. Older Rx rejects v2: retain the marker and use a v2-capable version.
+See [ownership rules](DESIGN.md#ownership) for the shared conflict policy.

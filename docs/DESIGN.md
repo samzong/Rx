@@ -55,7 +55,7 @@ The proposed [local supervisor](supervisor.md) defines a future ownership surfac
 | Claude catalog caches | shared | Marker identity stays Rx-owned even if changed or deleted; preserve unmarked entries. |
 | Codex config | launch | Prefer `-c` and environment injection. |
 | OpenCode config | launch | Prefer `OPENCODE_CONFIG_CONTENT`; only warn about native auth conflicts. |
-| Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
+| Pi `models.json` | shared | Own only marker-recorded provider identities. Preserve unmarked entries and user edits. A conflicting user identity requires a separate Rx-owned identity. Reject malformed roots and markers. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
 | `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json`, `mcp.json`, `hooks.json`, and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
@@ -64,6 +64,34 @@ The proposed [local supervisor](supervisor.md) defines a future ownership surfac
 
 Injection preference is: flags or environment, immutable launch config, then a
 narrowly merged owned entry. Convenience never justifies persistent mutation.
+
+Magpie's bundled route is `http://127.0.0.1:3425/v1`. The shared resolver falls
+back to public token `magpie` only for this identity and literal loopback
+HTTP/HTTPS endpoints, including any explicit Messages base. Existing stored
+and environment credential rules take precedence. Selection, login, completion,
+and launch share this rule. Login does not persist the token. Logout clears
+selection and Rx-owned data without revoking access. Storing the token during
+login is simpler but adds unnecessary key state. Rx does not manage Magpie or
+discover ports. Provider overrides handle other ports. Live model discovery
+alone cannot establish reasoning support under RX-CATALOG-001. Bulk catalog
+updates skip public-token-only routes because the token does not establish a
+running gateway. Explicit updates still attempt discovery. Aggregating failures
+instead changes existing remote-provider error handling.
+
+Pi preserves unmarked or edited entries byte-for-byte. A collision uses the
+marker-owned alias `rx-<logical-id>` on this and later launches. Alias conflicts
+stop launch. This shared rule protects every provider. A Magpie-only rule leaves
+other providers exposed. Automatic Pi scope uses `<native-id>/**` to include
+nested IDs. Local JSON edits preserve unrelated bytes through serde_json value
+boundaries. Whole-file serialization is simpler but violates that contract.
+
+Pi marker v2 maps native identities to logical IDs and last written values.
+Matching v1 entries keep their native identities and upgrade on write. Purge
+removes only unchanged marked entries for the logical ID. Older Rx rejects v2:
+retain its marker and use a v2-capable version for rollback. One lock spans the
+two atomic writes, which are not transactional. After interruption, Rx preserves
+unmarked or mismatched values and reports conflicts. Data that an older Rx
+already overwrote cannot be recovered.
 
 Kimi launches hold shared file leases across native execution. Unix uses inherited
 `flock` locks. Windows uses inherited read handles that deny write sharing.
@@ -101,8 +129,9 @@ generated catalog cache.
 
 Removal follows RX-OWN-001: an entry is removed only when a marker records Rx as
 its author and the on-disk value still matches the recorded payload. Entries
-without a marker, or edited since Rx wrote them, are preserved and reported by
-path so the user decides. Kimi is the only surface holding a literal credential,
+without a marker are preserved without attribution to Rx. Entries edited since
+Rx wrote them are preserved and reported by path so the user decides. Kimi is
+the only surface holding a literal credential,
 so an active lease there blocks removal. Logout is fail-closed: when any
 credential surface still holds a copy of the key, Rx keeps its own stored key
 too, names the blocker, and tells the user to rerun logout. A logout that

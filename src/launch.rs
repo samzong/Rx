@@ -189,6 +189,9 @@ fn resolve_key(
         Some(crate::provider::CredentialSource::Environment) => {
             Ok(environment.expect("environment credential"))
         }
+        Some(crate::provider::CredentialSource::Local) => {
+            Ok(crate::provider::public_key(provider).expect("local credential").to_string())
+        }
         None if auth == AuthMode::Env => bail!(
             "provider '{}' is set to auth = env, but ${} is not set",
             provider.id,
@@ -287,8 +290,8 @@ fn inject(
             plan.stderr_note = crate::opencode::auth_conflict_note(provider, key, env);
         }
         Harness::Pi => {
-            crate::pi::prepare(provider_id, provider, base_url, key, paths, env)?;
-            plan.args = crate::pi::args(provider_id, model, &request.passthrough);
+            let native_id = crate::pi::prepare(provider_id, provider, base_url, key, paths, env)?;
+            plan.args = crate::pi::args(&native_id, model, &request.passthrough);
             plan.env_set = crate::pi::env_set(&provider.env, key);
         }
         Harness::Dsh => {

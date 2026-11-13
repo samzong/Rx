@@ -25,7 +25,7 @@ enum Step {
 }
 
 pub(super) enum Outcome {
-    Login { id: String, key: String },
+    Login { id: String, key: Option<String> },
     Logout { index: usize },
     Use { index: usize },
 }
@@ -71,9 +71,19 @@ impl<'a> App<'a> {
     fn login_for_provider(providers: &'a [ProviderState], selected: usize) -> Self {
         let mut app = Self::new(Action::Login, providers);
         app.selected = Some(selected);
-        app.step = Step::ApiKey;
+        app.begin_login();
         app.direct = true;
         app
+    }
+
+    fn begin_login(&mut self) {
+        let provider = &self.providers[self.selected.expect("selected provider")].provider;
+        if crate::provider::public_key(provider).is_some() {
+            self.outcome = Some(Outcome::Login { id: provider.id.clone(), key: None });
+            self.exit = true;
+        } else {
+            self.step = Step::ApiKey;
+        }
     }
 
     fn filtered_providers(&self) -> Vec<usize> {
@@ -133,7 +143,7 @@ impl<'a> App<'a> {
                 self.api_key.clear();
                 self.validation_error = false;
                 match self.action {
-                    Action::Login => self.step = Step::ApiKey,
+                    Action::Login => self.begin_login(),
                     Action::Logout => self.step = Step::ConfirmLogout,
                     Action::Use => {
                         self.outcome =
@@ -170,7 +180,7 @@ impl<'a> App<'a> {
                 let index = self.selected.expect("selected provider");
                 self.outcome = Some(Outcome::Login {
                     id: self.providers[index].provider.id.clone(),
-                    key: self.api_key.trim().to_string(),
+                    key: Some(self.api_key.trim().to_string()),
                 });
                 self.exit = true;
             }
@@ -414,6 +424,8 @@ fn render_logout_confirmation(frame: &mut Frame, area: Rect, app: &App, palette:
     let state = &app.providers[app.selected.expect("selected provider")];
     let detail = if state.stored_key {
         "Removes the locally stored API key."
+    } else if crate::provider::public_key(&state.provider).is_some() {
+        "Clears the default selection and Rx-owned data. Magpie access does not change."
     } else if state.environment_active {
         "The key comes from your environment; Rx will show the unset command."
     } else {

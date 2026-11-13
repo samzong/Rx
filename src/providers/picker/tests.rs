@@ -18,6 +18,7 @@ fn state(id: &str, name: &str, configured: bool, default: bool) -> ProviderState
         },
         orphaned: false,
         configured,
+        local_credential: false,
         stored_key: configured,
         environment_active: false,
         default,
@@ -26,7 +27,7 @@ fn state(id: &str, name: &str, configured: bool, default: bool) -> ProviderState
 
 #[test]
 fn provider_selection_matches_launch_credentials_and_overrides() {
-    for id in ["tokener", "custom"] {
+    for id in ["tokener", "custom", "magpie"] {
         for auth in [AuthMode::ApiKey, AuthMode::Env] {
             for stored in [false, true] {
                 for environment in [false, true] {
@@ -58,7 +59,8 @@ fn provider_selection_matches_launch_credentials_and_overrides() {
                     let expected = match auth {
                         AuthMode::ApiKey if stored => Some("stored-key"),
                         AuthMode::Env if environment => Some("env-key"),
-                        AuthMode::ApiKey if environment && id == "tokener" => Some("env-key"),
+                        AuthMode::ApiKey if environment && id != "custom" => Some("env-key"),
+                        _ if id == "magpie" => Some("magpie"),
                         _ => None,
                     };
                     assert_eq!(state.configured, expected.is_some());

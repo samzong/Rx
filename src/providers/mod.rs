@@ -12,6 +12,7 @@ use picker::{Outcome, run_ui};
 struct ProviderState {
     provider: Provider,
     configured: bool,
+    local_credential: bool,
     stored_key: bool,
     environment_active: bool,
     default: bool,
@@ -81,12 +82,14 @@ fn update_models(paths: &Paths, env: &EnvLookup, requested: Option<&str>) -> Res
         ids.push(id.to_string());
     } else {
         for state in provider_states(paths, env)? {
-            if state.configured {
+            if state.configured && !state.local_credential {
                 ids.push(state.provider.id.clone());
             }
         }
         if ids.is_empty() {
-            println!("No providers configured. Run: rx providers login");
+            println!(
+                "No providers with explicit credentials. Run: rx providers models update <provider>"
+            );
             return Ok(());
         }
     }
@@ -125,11 +128,20 @@ fn list(paths: &Paths, env: &EnvLookup) -> Result<()> {
 fn login(paths: &Paths, env: &EnvLookup, requested: Option<&str>) -> Result<()> {
     let states = provider_states(paths, env)?;
     let selected = requested.map(|id| provider_index(&states, id, Action::Login)).transpose()?;
+    if let Some(index) = selected
+        && crate::provider::public_key(&states[index].provider).is_some()
+    {
+        return set_default_provider(paths, &states[index]);
+    }
     let outcome = run_ui(Action::Login, &states, env, selected)?;
     let Some(Outcome::Login { id, key }) = outcome else {
         return Ok(());
     };
-    crate::config::login(paths, &id, key)?;
+    if let Some(key) = key {
+        crate::config::login(paths, &id, key)?;
+    } else {
+        crate::config::set_default(paths, &id)?;
+    }
     let provider =
         crate::provider::resolve(&id, crate::config::load_or_default(paths)?.provider.get(&id))?;
     println!("* {} configured and set as default\n  {}", provider.name, provider.endpoint);
@@ -162,7 +174,12 @@ fn logout_provider(paths: &Paths, env: &EnvLookup, state: &ProviderState) -> Res
     if removed {
         println!("Removed stored API key for {}.", state.provider.name);
     }
-    if state.environment_active {
+    if crate::provider::public_key(&state.provider).is_some() {
+        println!(
+            "{} remains available through the local gateway. Magpie access did not change.",
+            state.provider.name
+        );
+    } else if state.environment_active {
         println!(
             "{} is still available through ${}. Run this in your shell to remove it:\n  unset {}",
             state.provider.name, state.provider.env, state.provider.env
@@ -287,20 +304,21 @@ fn provider_states(paths: &Paths, env: &EnvLookup) -> Result<Vec<ProviderState>>
             let auth = entry.map(|entry| entry.auth).unwrap_or(AuthMode::ApiKey);
             let environment = env.get(&provider.env).is_some();
             let environment_active =
-                crate::provider::credential_source(&provider, auth, false, environment).is_some();
-            let configured = crate::provider::credential_source(
+                crate::provider::credential_source(&provider, auth, false, environment)
+                    == Some(crate::provider::CredentialSource::Environment);
+            let credential = crate::provider::credential_source(
                 &provider,
                 auth,
                 stored.contains(&provider.id),
                 environment,
-            )
-            .is_some();
+            );
             let default =
                 config.default_provider.as_deref().unwrap_or("openrouter") == provider.id.as_str();
             ProviderState {
                 stored_key: stored.contains(&provider.id),
                 provider,
-                configured,
+                configured: credential.is_some(),
+                local_credential: credential == Some(crate::provider::CredentialSource::Local),
                 environment_active,
                 default,
                 orphaned: false,
@@ -314,6 +332,7 @@ fn provider_states(paths: &Paths, env: &EnvLookup) -> Result<Vec<ProviderState>>
         states.push(ProviderState {
             provider: crate::provider::orphan(id),
             configured: true,
+            local_credential: false,
             stored_key: true,
             environment_active: false,
             default: config.default_provider.as_deref() == Some(id.as_str()),

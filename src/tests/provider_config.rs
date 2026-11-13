@@ -49,7 +49,12 @@ fn bundled_providers_match_the_admission_list() {
     assert_eq!(bundled, admitted);
     for provider in provider::catalog() {
         provider::validate_id(&provider.id).unwrap();
-        assert!(provider.endpoint.starts_with("https://"), "{}", provider.id);
+        assert!(
+            provider.endpoint.starts_with("https://")
+                || (provider.id == "magpie" && provider.endpoint == "http://127.0.0.1:3425/v1"),
+            "{}",
+            provider.id
+        );
         assert!(!provider.endpoint.contains("${"), "{}", provider.id);
         assert!(!provider.env.is_empty(), "{}", provider.id);
         if let Some(claude) = &provider.anthropic_base {
@@ -60,6 +65,85 @@ fn bundled_providers_match_the_admission_list() {
             assert!(context > 0, "{}", provider.id);
         }
     }
+}
+
+#[test]
+fn magpie_local_credentials_follow_route_boundaries_and_explicit_key_precedence() {
+    for endpoint in [
+        "http://127.0.0.1:3425/v1",
+        "http://127.0.0.2:4321/v1",
+        "https://[::1]:4321/v1",
+        "http://provider.test/v1",
+        "http://127.0.0.1.provider.test/v1",
+        "http://127.0.0.1@provider.test/v1",
+        "http://user@127.0.0.1/v1",
+        "http://192.168.1.1/v1",
+        "ftp://127.0.0.1/v1",
+        "127.0.0.1:3425/v1",
+    ] {
+        let local = matches!(
+            endpoint,
+            "http://127.0.0.1:3425/v1" | "http://127.0.0.2:4321/v1" | "https://[::1]:4321/v1"
+        );
+        for (stored, environment, expected) in [
+            (false, false, local.then_some("magpie")),
+            (false, true, Some("env-key")),
+            (true, true, Some("stored-key")),
+        ] {
+            let (_dir, paths) = temp_paths();
+            fs::write(&paths.config, format!("[provider.magpie]\nbase_url = {endpoint:?}\n"))
+                .unwrap();
+            if stored {
+                config::login(&paths, "magpie", "stored-key".to_string()).unwrap();
+            }
+            let env = if environment {
+                isolated(&[("MAGPIE_API_KEY", "env-key")])
+            } else {
+                isolated(&[])
+            };
+            let configured = launch::configured_provider(Some("magpie"), &paths, &env);
+            if let Some(key) = expected {
+                let launch::ProviderResolution::Target(target) = configured.unwrap() else {
+                    panic!("selected provider must resolve");
+                };
+                assert_eq!(target.key, key, "{endpoint}");
+            } else {
+                assert!(configured.is_err(), "{endpoint}");
+            }
+        }
+    }
+    let (_dir, paths) = temp_paths();
+    fs::write(&paths.config, "[provider.magpie]\nanthropic_base = 'https://provider.test'\n")
+        .unwrap();
+    assert!(launch::configured_provider(Some("magpie"), &paths, &isolated(&[])).is_err());
+    fs::write(&paths.config, "[provider.custom]\nbase_url = 'http://127.0.0.1:3425/v1'\n").unwrap();
+    assert!(launch::configured_provider(Some("custom"), &paths, &isolated(&[])).is_err());
+}
+
+#[test]
+fn magpie_selection_login_and_logout_need_no_stored_key() {
+    let (_dir, paths) = temp_paths();
+    let env = isolated(&[]);
+    let choices = crate::providers::launch_choices(&paths, &env).unwrap();
+    assert!(choices.iter().any(|choice| choice.id == "magpie"));
+    let targets =
+        crate::providers::completion_ids(&paths, &env, ProviderIdFilter::Targets).unwrap();
+    assert!(targets.iter().any(|id| id == "magpie"));
+    for action in ["use", "login"] {
+        crate::run_with(os(&["rx", "providers", action, "magpie"]), &paths, &env).unwrap();
+        assert_eq!(
+            config::load_or_default(&paths).unwrap().default_provider.as_deref(),
+            Some("magpie")
+        );
+        assert!(!paths.keys.exists());
+        crate::run_with(os(&["rx", "providers", "logout", "magpie"]), &paths, &env).unwrap();
+        assert_eq!(config::load_or_default(&paths).unwrap().default_provider, None);
+        assert!(!paths.keys.exists());
+    }
+    assert!(matches!(
+        launch::configured_provider(Some("none"), &paths, &env).unwrap(),
+        launch::ProviderResolution::SkipInjection
+    ));
 }
 
 #[test]
@@ -283,7 +367,7 @@ model = "gpt-prod"
     assert!(opencode_config["provider"]["lab-prod"].is_null());
 
     let pi = launch::plan(&request(Harness::Pi, Some("lab-dev"), &[]), &paths, &env).unwrap();
-    assert_eq!(pi.args, ["--models", "lab-dev/*", "--model", "lab-dev/gpt-dev"]);
+    assert_eq!(pi.args, ["--models", "lab-dev/**", "--model", "lab-dev/gpt-dev"]);
     let pi_models: Value = read_json(agent_dir.join("models.json"));
     assert!(pi_models["providers"]["lab-dev"].is_object());
     assert!(pi_models["providers"]["lab-prod"].is_null());
