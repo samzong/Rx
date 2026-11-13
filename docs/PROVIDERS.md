@@ -17,8 +17,10 @@ provider ID, normalized endpoint, model ID, and protocol. Live `GET /v1/models`
 only filters which models are currently available. Models with a string `mode`
 other than `chat` or `responses` are excluded. Models without a string `mode`
 remain available. A matching bundled entry
-may declare reasoning as `fixed` or list the selectable effort IDs and their
-wire values. Missing data stays unknown and is not inferred from a model name.
+can declare reasoning as `fixed`, `toggle`, or a list of selectable effort IDs
+and their wire values. Fixed thinking exposes only `high` without a control
+parameter. A toggle exposes only `off` and `high`. Missing data stays unknown
+and is not inferred from a model name.
 Overriding a bundled provider's endpoint disables its bundled model
 capabilities and falls back to `openai-completions`. A bundled provider may set
 `dsh_protocol` for its verified agent path: `openai-responses` when its Chat
@@ -28,6 +30,14 @@ A model with an `anthropic-messages` entry is handed to rx-agent on that
 protocol at the provider's Messages base, where prompt caching works; Tokener's
 Claude models use this because its Responses endpoint does not cache them. Its
 reasoning wire values are Messages `output_config.effort` values.
+Otherwise, a model with a Chat capability uses Chat instead of the provider's
+default protocol. This does not change other models on that provider.
+
+Tokener `kimi-k3` and `kimi-k3.1-pro` use Chat toggles. Their `off` and `high`
+requests send `thinking.type` as `disabled` and `enabled`, respectively.
+Tokener `kimi-k3.1` uses fixed thinking and offers only `high`.
+These three models send no `reasoning_effort`. The fixed model also sends no
+`thinking` field. These declarations apply only to the bundled Tokener endpoint.
 
 Users manage providers with `rx providers list`, `login [provider]`,
 `logout [provider]`, `use [provider]`, and `models update [provider]`. Passing a

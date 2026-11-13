@@ -78,7 +78,32 @@ impl ReasoningLevel {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum ReasoningControl {
     Fixed,
+    Toggle,
     Effort { levels: BTreeMap<ReasoningLevel, Option<String>> },
+}
+
+impl ReasoningControl {
+    pub(crate) fn levels(&self) -> BTreeMap<ReasoningLevel, Option<String>> {
+        match self {
+            Self::Fixed => BTreeMap::from([(ReasoningLevel::High, Some("high".into()))]),
+            Self::Toggle => BTreeMap::from([
+                (ReasoningLevel::Off, Some("disabled".into())),
+                (ReasoningLevel::High, Some("enabled".into())),
+            ]),
+            Self::Effort { levels } => levels.clone(),
+        }
+    }
+
+    pub(crate) fn completions_compat(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::Fixed => Some(serde_json::json!({"supportsReasoningEffort": false})),
+            Self::Toggle => Some(serde_json::json!({
+                "thinkingFormat": "deepseek",
+                "supportsReasoningEffort": false,
+            })),
+            Self::Effort { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

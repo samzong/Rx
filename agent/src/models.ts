@@ -39,5 +39,5 @@ export async function resolveModel(models: Models, spec: string | undefined, thi
     throw new Error(`no credentials for provider "${provider}"; run rx-agent login ${provider} or set its API key environment variable`);
   }
   const level = parseThinking(thinking);
-  return { model, thinking: level === "off" ? "off" : (clampThinkingLevel(model, level) as ThinkingLevel) };
+  return { model, thinking: clampThinkingLevel(model, level) as ThinkingLevel };
 }

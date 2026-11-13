@@ -39,7 +39,7 @@ The proposed [local supervisor](supervisor.md) defines a future ownership surfac
 | RX-SECRET-001 | Never put credentials in argv, logs, or broad-permission files. Persist only when unavoidable and owner-approved. |
 | RX-LIFECYCLE-001 | Install policy, planning controls, and child environment are separate scopes; Rx-only controls never reach the child. |
 | RX-AGENT-001 | The canonical harness is `rx-agent`, launched by `rx rx-agent`, `rx agent`, and `rxa`. Discovery is PATH, then beside Rx, then a verified managed version under `~/.recall/rx-agent/versions/<version>/`. A missing-agent terminal launch can install that managed version after `[y/N]` approval. External installations always precede management and never trigger managed updates. Independent `rx-agent-v*` releases never become the repository latest release. Rx releases explicitly become latest. Both products require SHA256SUMS. `make install` continues to install both binaries. See [distribution](../agent/docs/distribution.md). |
-| RX-AGENT-002 | A provider launch hands rx-agent only the child environment: the provider key under the provider's `env` name, `RX_AGENT_PROVIDER` (provider id, name, API, base URL, key variable name, the catalog models, and `defaultModel`; a model with a bundled `anthropic-messages` capability entry also carries `api: anthropic-messages` and the provider's Messages base URL), and `RX_MODEL` as `provider/model` only when `rx.toml` sets the provider-level `model`. `defaultModel` is that `model`, else the provider's default model, else the first listed model. Catalog failure hands off only the `--model` and default models, and fails when neither exists. Argv is never rewritten. |
+| RX-AGENT-002 | A provider launch hands rx-agent only the child environment: the provider key under the provider's `env` name, `RX_AGENT_PROVIDER` (provider id, name, API, base URL, key variable name, the catalog models, and `defaultModel`; a model with a bundled `anthropic-messages` capability entry also carries `api: anthropic-messages` and the provider's Messages base URL, otherwise a bundled `openai-completions` capability selects Chat for that model), and `RX_MODEL` as `provider/model` only when `rx.toml` sets the provider-level `model`. `defaultModel` is that `model`, else the provider's default model, else the first listed model. Catalog failure hands off only the `--model` and default models, and fails when neither exists. Argv is never rewritten. |
 | RX-AGENT-003 | Handed-off model capabilities follow RX-CATALOG-001: reasoning levels come only from the bundled snapshot for the protocol the model is handed off on, unlisted levels are sent as unsupported, and models without snapshot capabilities are sent with `reasoning: false`. A missing context length uses the provider's fallback context. |
 | RX-HOST-001 | Hosted mode injects the same launch-scoped route and permissions as a native Rx launch; it never overrides any harness home, and hosted state holds Rx-internal runtime state only. |
 | RX-CONCURRENCY-001 | Concurrent launches cannot retarget, corrupt, or delete another launch or user edit. |
@@ -169,6 +169,13 @@ same API, rx-agent keeps pi-ai's metadata for listed models, because pi-ai
 carries per-endpoint compatibility settings the snapshot does not. Built-in
 models absent from the handoff are dropped. Other models get pi-ai custom-model
 defaults: text input, zero cost, and 16384 max output tokens.
+
+Reasoning controls distinguish selectable effort, a thinking toggle, and fixed
+thinking. A toggle exposes only `off` and `high`. Fixed thinking exposes only
+`high`, which identifies the fixed mode rather than an upstream effort value.
+Chat handoffs carry the minimum pi compatibility fields for these controls.
+The DSH overlay uses the same levels and native compatibility fields when its
+selected protocol has such a capability. Neither path infers controls from names.
 
 Context compaction belongs to rx-agent under RX-COMPACT-001..005 in its own contract.
 The launcher keeps the request, plan, configuration, and exec path. Binary discovery follows RX-AGENT-001.
