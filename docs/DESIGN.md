@@ -55,7 +55,7 @@ The proposed [local supervisor](supervisor.md) defines a future ownership surfac
 | Claude catalog caches | shared | Marker identity stays Rx-owned even if changed or deleted; preserve unmarked entries. |
 | Codex config | launch | Prefer `-c` and environment injection. |
 | OpenCode config | launch | Prefer `OPENCODE_CONFIG_CONTENT`; only warn about native auth conflicts. |
-| Pi `models.json` | shared | Own the selected provider entry recorded in the `models.json.rx-catalog.json` marker; preserve the rest; reject malformed roots. |
+| Pi `models.json` | shared | Own only marker-recorded provider identities. Preserve unmarked entries and user edits. A conflicting user identity requires a separate Rx-owned identity. Reject malformed roots and markers. |
 | DSH install and profile | user | Use the user's npm prefix and native `DSH_HOME` (`~/.dsh` by default); routing uses a per-provider launch overlay under `~/.recall/dsh/<provider>/`. |
 | Kimi `config.toml` | shared | Use `rx`-prefixed marked entries; preserve collisions and user edits. Launch leases protect active catalog identities. Its required literal credential uses secret mode. |
 | `$RX_HOME` (default `~/.rx`) | rx-agent / user | rx-agent owns sessions and its credentials (`auth.json`, `device-id`), independent of `rx.keys`. The user owns `config.json`, `mcp.json`, `hooks.json`, and `AGENTS.md`, which rx-agent only reads. The launcher never reads or writes this directory. |
@@ -64,6 +64,48 @@ The proposed [local supervisor](supervisor.md) defines a future ownership surfac
 
 Injection preference is: flags or environment, immutable launch config, then a
 narrowly merged owned entry. Convenience never justifies persistent mutation.
+
+The bundled Magpie route uses `http://127.0.0.1:3425/v1`. Its public token is
+`magpie`. The shared credential resolver uses it only after stored and
+environment credentials, under their existing auth-mode rules. Both the OpenAI
+endpoint and any explicit Messages base must use literal loopback IPs with HTTP
+or HTTPS. Remote overrides require credentials. Other provider identities never
+inherit this fallback. Selection, login, completion, and launch use the same
+rule. Login does not persist the public token. Logout clears the selection and
+Rx-owned data without revoking gateway access.
+
+Writing the public token during login is the simpler alternative. It creates
+unnecessary key state and makes logout imply a credential lifecycle that the
+gateway does not require. The launch resolver therefore owns the fallback.
+Rx does not discover ports, start Magpie, or modify Magpie configuration.
+The existing provider override handles nondefault ports. Live model discovery
+does not establish reasoning support under RX-CATALOG-001.
+
+Pi keeps the logical provider ID when that native identity is vacant or its
+current value matches an Rx marker. An unmarked or edited collision uses
+`rx-<logical-id>`. This rule applies to every provider because the shared merge
+path owns the same boundary. A Magpie-only alias is the simpler alternative,
+but leaves the same overwrite defect for other providers. If the alias is
+unmarked or edited, Rx refuses the launch instead of claiming it. An existing
+marked alias remains the selected native identity on later launches. Automatic
+Pi model scope uses `<native-id>/**` because Pi matches a provider and model ID
+as one glob path; model IDs can contain slashes.
+
+Pi edits only the selected member in the original JSON bytes. Unchanged
+provider entries and unrelated root fields keep their spelling, whitespace,
+key order, escapes, and number forms. Existing serde_json parsing locates
+member boundaries. Whole-file serialization is smaller but fails this
+preservation contract.
+
+Pi marker version 2 records each native identity, its logical provider ID, and
+its last written value. Version 1 remains readable. A matching version 1
+`magpie` entry keeps its native identity and upgrades its marker on write.
+Purge uses the logical provider ID and removes only unchanged marked entries.
+It preserves unmarked entries and user edits. Older Rx versions reject version
+2 markers. Rollback must retain the marker and use a version that reads it.
+The lock spans both writes, but the files do not form one transaction. After an
+interrupted write, Rx preserves an unmarked or mismatched value and reports a
+conflict. It cannot recover data that an older Rx already overwrote.
 
 Kimi launches hold shared file leases across native execution. Unix uses inherited
 `flock` locks. Windows uses inherited read handles that deny write sharing.

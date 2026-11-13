@@ -1,6 +1,6 @@
 {
   "source": "https://models.dev/api.json",
-  "updated_at": "2026-08-24",
+  "updated_at": "2026-11-13",
   "providers": [
     {
       "id": "openrouter",
@@ -497,6 +497,12 @@
       "endpoint": "https://open.bigmodel.cn/api/coding/paas/v4",
       "env": "ZHIPU_API_KEY",
       "anthropic_base": "https://open.bigmodel.cn/api/anthropic"
+    },
+    {
+      "id": "magpie",
+      "name": "Magpie",
+      "endpoint": "http://127.0.0.1:3425/v1",
+      "env": "MAGPIE_API_KEY"
     }
   ]
 }

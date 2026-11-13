@@ -243,6 +243,7 @@ pub(crate) fn available(config: &RxConfig) -> Result<Vec<Provider>> {
 pub(crate) enum CredentialSource {
     Stored,
     Environment,
+    Local,
 }
 
 pub(crate) fn credential_source(
@@ -255,9 +256,34 @@ pub(crate) fn credential_source(
         Some(CredentialSource::Stored)
     } else if environment && (auth == AuthMode::Env || find(&provider.id).is_some()) {
         Some(CredentialSource::Environment)
+    } else if public_key(provider).is_some() {
+        Some(CredentialSource::Local)
     } else {
         None
     }
+}
+
+pub(crate) fn public_key(provider: &Provider) -> Option<&'static str> {
+    (provider.id == "magpie"
+        && find(&provider.id).is_some()
+        && is_loopback_endpoint(&provider.endpoint)
+        && provider.anthropic_base.as_deref().is_none_or(is_loopback_endpoint))
+    .then_some("magpie")
+}
+
+fn is_loopback_endpoint(endpoint: &str) -> bool {
+    let Ok(uri) = endpoint.parse::<ureq::http::Uri>() else {
+        return false;
+    };
+    if !matches!(uri.scheme_str(), Some("http" | "https"))
+        || uri.authority().is_none_or(|authority| authority.as_str().contains('@'))
+    {
+        return false;
+    }
+    uri.host()
+        .map(|host| host.trim_start_matches('[').trim_end_matches(']'))
+        .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|ip| ip.is_loopback())
 }
 
 pub(crate) fn is_none(id: &str) -> bool {

@@ -85,3 +85,40 @@ endpoint. If Claude Code needs a separate Anthropic-compatible origin, set
 `providers.json`, or `[provider.<id>] anthropic_base` in `rx.toml`). Codex,
 OpenCode, and Pi still use `endpoint`. Their compatibility is the user's
 responsibility and does not lower the bundled catalog admission bar.
+
+## Local Magpie gateway
+
+Start Magpie, then run `rx providers use magpie`. The one-launch form is
+`rx --provider magpie <harness>`. Rx uses `http://127.0.0.1:3425/v1` and the
+public token `magpie` without asking for a key or writing `rx.keys`.
+`rx providers login magpie` also selects Magpie without a key prompt.
+Rx does not start Magpie or read its configuration.
+
+Existing credential rules take precedence over the public token. A stored key
+wins with `auth = "api_key"`. An environment key uses `MAGPIE_API_KEY`, or the
+configured `env` override. The public token is a fallback only for the bundled
+`magpie` identity when its endpoint uses a literal loopback IP with HTTP or
+HTTPS. An explicit `anthropic_base` must also use a literal loopback IP.
+Remote endpoints and other provider identities require their own credentials.
+The bundled HTTP exception is limited to Magpie's default endpoint. Other
+bundled endpoints still require HTTPS.
+
+For a different local port, set `[provider.magpie] base_url` in
+`~/.recall/rx.toml`. Rx does not scan ports or follow Magpie port changes.
+Logout clears the default selection and Rx-owned data. It does not stop
+Magpie or revoke access through the public token.
+
+Magpie supplies its live model catalog. Rx preserves each complete model ID,
+including nested slashes. This release declares no Magpie reasoning
+capabilities. In rx-agent, Thinking therefore offers only `off`, and Fast is
+unavailable. This does not prove that an upstream model disables reasoning.
+Session affinity and every model's tool and reasoning behavior are unverified.
+
+For native Pi, an existing unmarked `providers.magpie` stays byte-for-byte
+unchanged. Rx creates `rx-magpie` and uses that identity for automatic model
+arguments. The same collision rule protects other providers. If `rx-magpie`
+already belongs to the user or contains user edits, launch stops. Logout only
+removes unchanged Rx-owned entries. A matching legacy Rx marker for `magpie`
+keeps its native identity. The marker upgrades to version 2, which older Rx
+versions reject. Keep that marker when returning to an earlier installation.
+Use an Rx version that can read version 2.

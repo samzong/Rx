@@ -125,11 +125,20 @@ fn list(paths: &Paths, env: &EnvLookup) -> Result<()> {
 fn login(paths: &Paths, env: &EnvLookup, requested: Option<&str>) -> Result<()> {
     let states = provider_states(paths, env)?;
     let selected = requested.map(|id| provider_index(&states, id, Action::Login)).transpose()?;
+    if let Some(index) = selected
+        && crate::provider::public_key(&states[index].provider).is_some()
+    {
+        return set_default_provider(paths, &states[index]);
+    }
     let outcome = run_ui(Action::Login, &states, env, selected)?;
     let Some(Outcome::Login { id, key }) = outcome else {
         return Ok(());
     };
-    crate::config::login(paths, &id, key)?;
+    if let Some(key) = key {
+        crate::config::login(paths, &id, key)?;
+    } else {
+        crate::config::set_default(paths, &id)?;
+    }
     let provider =
         crate::provider::resolve(&id, crate::config::load_or_default(paths)?.provider.get(&id))?;
     println!("* {} configured and set as default\n  {}", provider.name, provider.endpoint);
@@ -162,7 +171,12 @@ fn logout_provider(paths: &Paths, env: &EnvLookup, state: &ProviderState) -> Res
     if removed {
         println!("Removed stored API key for {}.", state.provider.name);
     }
-    if state.environment_active {
+    if crate::provider::public_key(&state.provider).is_some() {
+        println!(
+            "{} remains available through the local gateway. Magpie access did not change.",
+            state.provider.name
+        );
+    } else if state.environment_active {
         println!(
             "{} is still available through ${}. Run this in your shell to remove it:\n  unset {}",
             state.provider.name, state.provider.env, state.provider.env
@@ -287,7 +301,8 @@ fn provider_states(paths: &Paths, env: &EnvLookup) -> Result<Vec<ProviderState>>
             let auth = entry.map(|entry| entry.auth).unwrap_or(AuthMode::ApiKey);
             let environment = env.get(&provider.env).is_some();
             let environment_active =
-                crate::provider::credential_source(&provider, auth, false, environment).is_some();
+                crate::provider::credential_source(&provider, auth, false, environment)
+                    == Some(crate::provider::CredentialSource::Environment);
             let configured = crate::provider::credential_source(
                 &provider,
                 auth,
