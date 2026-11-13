@@ -88,37 +88,26 @@ responsibility and does not lower the bundled catalog admission bar.
 
 ## Local Magpie gateway
 
-Start Magpie, then run `rx providers use magpie`. The one-launch form is
-`rx --provider magpie <harness>`. Rx uses `http://127.0.0.1:3425/v1` and the
-public token `magpie` without asking for a key or writing `rx.keys`.
-`rx providers login magpie` also selects Magpie without a key prompt.
-Rx does not start Magpie or read its configuration.
+With Magpie running, use `rx providers use magpie` or
+`rx --provider magpie <harness>`. Rx uses `http://127.0.0.1:3425/v1` without a key
+prompt or `rx.keys` write. `rx providers login magpie` also selects it.
+For another port, set `[provider.magpie] base_url` in `~/.recall/rx.toml`.
+Rx does not start Magpie, read its configuration, or discover ports.
 
-Existing credential rules take precedence over the public token. A stored key
-wins with `auth = "api_key"`. An environment key uses `MAGPIE_API_KEY`, or the
-configured `env` override. The public token is a fallback only for the bundled
-`magpie` identity when its endpoint uses a literal loopback IP with HTTP or
-HTTPS. An explicit `anthropic_base` must also use a literal loopback IP.
-Remote endpoints and other provider identities require their own credentials.
-The bundled HTTP exception is limited to Magpie's default endpoint. Other
-bundled endpoints still require HTTPS.
+The public token `magpie` applies only to bundled Magpie with literal loopback
+HTTP/HTTPS endpoints, including any explicit `anthropic_base`. Existing stored
+and environment credential rules take precedence. The default environment key
+is `MAGPIE_API_KEY`. Remote endpoints and other provider identities need their
+own credentials. Only Magpie's default bundled endpoint permits HTTP. Logout clears
+selection and Rx-owned data, not gateway access.
 
-For a different local port, set `[provider.magpie] base_url` in
-`~/.recall/rx.toml`. Rx does not scan ports or follow Magpie port changes.
-Logout clears the default selection and Rx-owned data. It does not stop
-Magpie or revoke access through the public token.
+The live catalog retains complete model IDs, including nested slashes.
+No reasoning capability is declared: rx-agent offers Thinking `off` and no Fast.
+This does not prove that upstream reasoning is disabled. Session affinity and
+all models' tool and reasoning behavior remain unverified.
 
-Magpie supplies its live model catalog. Rx preserves each complete model ID,
-including nested slashes. This release declares no Magpie reasoning
-capabilities. In rx-agent, Thinking therefore offers only `off`, and Fast is
-unavailable. This does not prove that an upstream model disables reasoning.
-Session affinity and every model's tool and reasoning behavior are unverified.
-
-For native Pi, an existing unmarked `providers.magpie` stays byte-for-byte
-unchanged. Rx creates `rx-magpie` and uses that identity for automatic model
-arguments. The same collision rule protects other providers. If `rx-magpie`
-already belongs to the user or contains user edits, launch stops. Logout only
-removes unchanged Rx-owned entries. A matching legacy Rx marker for `magpie`
-keeps its native identity. The marker upgrades to version 2, which older Rx
-versions reject. Keep that marker when returning to an earlier installation.
-Use an Rx version that can read version 2.
+Pi preserves an unmarked `providers.magpie` byte-for-byte and uses `rx-magpie`.
+An unowned or edited alias stops launch. Logout removes only unchanged Rx-owned
+entries. Matching legacy Rx entries keep their native ID and upgrade to marker
+v2. Older Rx rejects v2: retain the marker and use a v2-capable version.
+See [ownership rules](DESIGN.md#ownership) for the shared conflict policy.
