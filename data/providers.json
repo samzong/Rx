@@ -15,6 +15,27 @@
       "env": "TOKENER_API_KEY",
       "dsh_protocol": "openai-responses",
       "model_capabilities": {
+        "kimi-k3": {
+          "openai-completions": {
+            "reasoning": {
+              "kind": "toggle"
+            }
+          }
+        },
+        "kimi-k3.1": {
+          "openai-completions": {
+            "reasoning": {
+              "kind": "fixed"
+            }
+          }
+        },
+        "kimi-k3.1-pro": {
+          "openai-completions": {
+            "reasoning": {
+              "kind": "toggle"
+            }
+          }
+        },
         "gpt-6-luna": {
           "openai-responses": {
             "reasoning": {

@@ -7,7 +7,7 @@ use crate::args;
 use crate::catalog::{self, ListedModel, openai_base};
 use crate::config::Paths;
 use crate::launch::EnvLookup;
-use crate::provider::{ModelProtocol, Provider, ReasoningControl, ReasoningLevel, Setup};
+use crate::provider::{ModelProtocol, Provider, ReasoningLevel, Setup};
 
 pub(crate) const PROGRAM: &str = "rx-agent";
 pub(crate) const PROVIDER_ENV: &str = "RX_AGENT_PROVIDER";
@@ -100,17 +100,22 @@ fn model_entry(provider: &Provider, protocol: ModelProtocol, listed: &ListedMode
             entry.insert("api".into(), messages.as_str().into());
             entry.insert("baseUrl".into(), crate::provider::claude_base(provider).into());
             messages
+        } else if crate::provider::serves(
+            &provider.id,
+            &provider.endpoint,
+            &listed.id,
+            ModelProtocol::OpenAiCompletions,
+        ) {
+            entry.insert("api".into(), ModelProtocol::OpenAiCompletions.as_str().into());
+            ModelProtocol::OpenAiCompletions
         } else {
             protocol
         };
     let control =
         crate::provider::reasoning_control(&provider.id, &provider.endpoint, &listed.id, protocol);
-    let levels = match control {
-        Some(ReasoningControl::Effort { levels }) => Some(levels),
-        _ => None,
-    };
-    entry.insert("reasoning".into(), levels.is_some().into());
-    if let Some(levels) = levels {
+    entry.insert("reasoning".into(), control.is_some().into());
+    if let Some(control) = control {
+        let levels = control.levels();
         let map = ReasoningLevel::ALL
             .iter()
             .map(|level| {
@@ -119,6 +124,11 @@ fn model_entry(provider: &Provider, protocol: ModelProtocol, listed: &ListedMode
             })
             .collect::<Map<_, _>>();
         entry.insert("thinkingLevelMap".into(), Value::Object(map));
+        if protocol == ModelProtocol::OpenAiCompletions
+            && let Some(compat) = control.completions_compat()
+        {
+            entry.insert("compat".into(), compat);
+        }
     }
     Value::Object(entry)
 }
@@ -141,7 +151,15 @@ mod tests {
         assert_eq!(entry("gpt-5.6-sol")["thinkingLevelMap"]["max"], "max");
         assert_eq!(entry("glm-5.2")["reasoning"], true);
         assert_eq!(entry("glm-5.2")["thinkingLevelMap"]["high"], Value::Null);
-        assert_eq!(entry("kimi-k3")["reasoning"], false);
+        assert_eq!(entry("kimi-k3")["api"], "openai-completions");
+        assert_eq!(entry("kimi-k3")["thinkingLevelMap"]["off"], "disabled");
+        assert_eq!(entry("kimi-k3")["thinkingLevelMap"]["high"], "enabled");
+        assert_eq!(entry("kimi-k3.1")["thinkingLevelMap"]["off"], Value::Null);
+        assert_eq!(entry("kimi-k3.1")["thinkingLevelMap"]["high"], "high");
+        assert_eq!(
+            entry("kimi-k3.1-pro")["thinkingLevelMap"],
+            entry("kimi-k3")["thinkingLevelMap"]
+        );
     }
 
     #[test]

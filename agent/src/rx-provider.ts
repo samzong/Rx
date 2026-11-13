@@ -24,6 +24,11 @@ const APIS = {
 } as const;
 type HandoffApi = keyof typeof APIS;
 
+interface CompletionsCompat {
+  supportsReasoningEffort: false;
+  thinkingFormat?: "deepseek";
+}
+
 interface HandoffModel {
   id: string;
   name?: string;
@@ -32,6 +37,7 @@ interface HandoffModel {
   contextWindow: number;
   reasoning: boolean;
   thinkingLevelMap?: ThinkingLevelMap;
+  compat?: CompletionsCompat;
 }
 
 export interface Handoff {
@@ -87,7 +93,16 @@ function parseApi(value: unknown, path: string): HandoffApi {
   return api as HandoffApi;
 }
 
-function parseModel(value: unknown, path: string): HandoffModel {
+function parseCompat(value: unknown, path: string, api: HandoffApi): CompletionsCompat {
+  const compat = record(value, path);
+  if (api !== "openai-completions") fail(`${path} requires openai-completions`);
+  if (Object.keys(compat).some((key) => key !== "supportsReasoningEffort" && key !== "thinkingFormat")) fail(`${path} has an unknown field`);
+  if (compat.supportsReasoningEffort !== false) fail(`${path}.supportsReasoningEffort must be false`);
+  if (compat.thinkingFormat !== undefined && compat.thinkingFormat !== "deepseek") fail(`${path}.thinkingFormat must be deepseek`);
+  return { supportsReasoningEffort: false, ...(compat.thinkingFormat === "deepseek" ? { thinkingFormat: "deepseek" } : {}) };
+}
+
+function parseModel(value: unknown, path: string, defaultApi: HandoffApi): HandoffModel {
   const raw = record(value, path);
   const contextWindow = raw.contextWindow;
   if (typeof contextWindow !== "number" || !Number.isInteger(contextWindow) || contextWindow <= 0) {
@@ -102,6 +117,7 @@ function parseModel(value: unknown, path: string): HandoffModel {
     contextWindow,
     reasoning: raw.reasoning,
     thinkingLevelMap: raw.thinkingLevelMap === undefined ? undefined : parseLevels(raw.thinkingLevelMap, `${path}.thinkingLevelMap`),
+    compat: raw.compat === undefined ? undefined : parseCompat(raw.compat, `${path}.compat`, raw.api === undefined ? defaultApi : parseApi(raw.api, `${path}.api`)),
   };
 }
 
@@ -115,7 +131,7 @@ export function parseHandoff(source: string): Handoff {
   const raw = record(parsed, "document");
   const api = parseApi(raw.api, "api");
   if (!Array.isArray(raw.models) || !raw.models.length) fail("models must be a non-empty array");
-  const models = raw.models.map((model, index) => parseModel(model, `models[${index}]`));
+  const models = raw.models.map((model, index) => parseModel(model, `models[${index}]`, api));
   const defaultModel = text(raw.defaultModel, "defaultModel");
   if (!models.some((model) => model.id === defaultModel)) fail(`defaultModel "${defaultModel}" is not in models`);
   return {
@@ -155,7 +171,7 @@ export function applyHandoff(models: MutableModels, handoff: Handoff): void {
         baseUrl,
         reasoning: model.reasoning,
         thinkingLevelMap: model.thinkingLevelMap,
-        compat: api === "anthropic-messages" && model.thinkingLevelMap ? { forceAdaptiveThinking: true } : undefined,
+        compat: api === "anthropic-messages" && model.thinkingLevelMap ? { forceAdaptiveThinking: true } : model.compat,
         input: ["text"],
         cost: placeholderCost(),
         contextWindow: model.contextWindow,

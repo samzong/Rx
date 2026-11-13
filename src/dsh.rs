@@ -238,22 +238,19 @@ fn llm_pi_ai_section(context: &RouteContext<'_>, models: &[DshModel]) -> Value {
             .map(|model| {
                 let mut entry = Mapping::from_iter([("id".into(), model.id.clone().into())]);
                 if let Some(reasoning) = &model.reasoning {
-                    let efforts = match reasoning {
-                        ReasoningControl::Fixed => Value::Bool(false),
-                        ReasoningControl::Effort { levels } => Value::Mapping(
-                            levels
-                                .iter()
-                                .map(|(level, wire)| {
-                                    (
-                                        level.as_str().into(),
-                                        wire.as_ref()
-                                            .map_or(Value::Null, |wire| wire.clone().into()),
-                                    )
-                                })
-                                .collect(),
-                        ),
-                    };
-                    entry.insert("reasoningEfforts".into(), efforts);
+                    let efforts = reasoning
+                        .levels()
+                        .into_iter()
+                        .map(|(level, wire)| {
+                            (level.as_str().into(), wire.map_or(Value::Null, Value::String))
+                        })
+                        .collect();
+                    entry.insert("reasoningEfforts".into(), Value::Mapping(efforts));
+                    if context.protocol == ModelProtocol::OpenAiCompletions
+                        && let Some(compat) = reasoning.completions_compat()
+                    {
+                        entry.insert("compat".into(), serde_yaml::to_value(compat).unwrap());
+                    }
                 }
                 Value::Mapping(entry)
             })

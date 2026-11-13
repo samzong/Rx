@@ -58,7 +58,7 @@ built yet.
 | RX-AUTH-001 | `rx-agent login` and `logout` manage rx-agent's own credentials, including ChatGPT subscriptions (OAuth) and API keys, in `$RX_HOME/auth.json`. This store is independent of the rx launcher's provider configuration and key store. The file is `0600` in a `0700` directory and is replaced atomically. Every write, including an OAuth token refresh during a run, holds `auth.json.lock` with the owner pid; a live owner is waited for up to 30 seconds and then named in the error, and a dead owner's lock is reclaimed with the same pid-reuse limit as RX-LOG-003. A malformed file or entry is an error and is never overwritten. |
 | RX-AUTH-002 | During an rx launch, the store hides the handed-off provider id: its key comes only from the launch environment, and `login` / `logout` ignore the handoff. Other stored providers stay available, so `--model <provider>/<id>` can select a subscription model in an rx launch. |
 | RX-HANDOFF-001 | When `RX_AGENT_PROVIDER` is set, rx-agent validates it and fails closed on malformed input, then registers that provider with the handed-off models only. A model's own `api` and `baseUrl` override the provider's. A listed model keeps pi-ai's built-in metadata only when a built-in model of the same provider has the same id, API, and endpoint (ignoring a trailing `/v1`); any other model gets the handed-off context window and reasoning levels with text input, zero cost, and 16384 max output tokens. The key is read from the named environment variable. `defaultModel` must name a handed-off model. Requests to an `openai-responses` handoff omit `prompt_cache_key`, because gateways such as Tokener reject it for some models. On `anthropic-messages`, a model with reasoning levels uses adaptive thinking and sends the level's wire value as `output_config.effort`; pi-ai's default prompt caching applies. |
-| RX-MODEL-001 | The model is `--model`, then `RX_MODEL`, then `model` in `$RX_HOME/config.json`. In an rx launch, a missing `model` selects `RX_AGENT_PROVIDER`'s `defaultModel` with a stderr note, and a `model` of another provider, or one that cannot be resolved in that launch, falls back to `defaultModel` with a stderr note naming the reason. Without a launch, a missing or unresolvable model is an error. An unknown `thinking` name is always an error. ACP recovery of recognized levels uses the nearest supported level (pi-ai `clampThinkingLevel`) under RX-ACP-002. |
+| RX-MODEL-001 | The model is `--model`, then `RX_MODEL`, then `model` in `$RX_HOME/config.json`. In an rx launch, a missing `model` selects `RX_AGENT_PROVIDER`'s `defaultModel` with a stderr note, and a `model` of another provider, or one that cannot be resolved in that launch, falls back to `defaultModel` with a stderr note naming the reason. Without a launch, a missing or unresolvable model is an error. An unknown `thinking` name is always an error. Model resolution and ACP recovery of recognized levels use the nearest supported level (pi-ai `clampThinkingLevel`), including `off` when the model cannot disable thinking. Explicit ACP setters remain strict under RX-ACP-002. |
 | RX-PRIVATE-001 | Session logs live under `$RX_HOME` (default `~/.rx`) with `0700` directories and `0600` files. Session logs and eval tasks never enter this repository. |
 | RX-PERM-001 | Tools run with the user's permissions and no sandbox. This is an owner decision for the prototype; a sandbox replaces it in a later phase. |
 | RX-ACP-001 | ACP v1 uses SDK 2.5.0 session configuration options for model, thinking, and supported Fast controls. New and loaded sessions report a complete snapshot. Setters return and notify the complete updated snapshot. Changes apply only between prompts and stay in memory. New and load accept startup choices over current launch defaults. No legacy model setter, permission modes, permission requests, or Plan control is advertised. |
@@ -104,6 +104,22 @@ built yet.
 ## Instructions and skills
 
 See [Instructions and skills](docs/instructions-and-skills.md) for context loading, references, discovery, and upstream ownership.
+
+## Chat thinking controls
+
+A Chat handoff can carry only `supportsReasoningEffort: false` and optional
+`thinkingFormat: deepseek` in its model compatibility fields. Other compatibility
+fields, formats, or protocols fail validation. pi-ai owns request serialization.
+A toggle uses both fields and exposes only `off` and `high`. pi-ai sends
+`thinking: {type: disabled}` or `thinking: {type: enabled}` without effort.
+Fixed thinking exposes only `high` and omits the format. It sends neither
+`thinking` nor `reasoning_effort`.
+
+Tokener Kimi models need these controls on Chat rather than Responses.
+A data-only effort map cannot select that protocol or express a toggle payload.
+A custom payload adapter duplicates behavior that pi-ai 1.5.0 already provides.
+The launcher selects Chat only for the exact bundled endpoint and model entry.
+Messages routing, other models, and endpoint overrides retain their existing paths.
 
 ## ACP session controls
 
