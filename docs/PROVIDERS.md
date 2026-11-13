@@ -99,7 +99,9 @@ HTTP/HTTPS endpoints, including any explicit `anthropic_base`. Existing stored
 and environment credential rules take precedence. The default environment key
 is `MAGPIE_API_KEY`. Remote endpoints and other provider identities need their
 own credentials. Only Magpie's default bundled endpoint permits HTTP. Logout clears
-selection and Rx-owned data, not gateway access.
+selection and Rx-owned data, not gateway access. Without a provider argument,
+`rx providers models update` skips Magpie when it uses only the public local
+token. Use `rx providers models update magpie` to refresh it explicitly.
 
 The live catalog retains complete model IDs, including nested slashes.
 No reasoning capability is declared: rx-agent offers Thinking `off` and no Fast.

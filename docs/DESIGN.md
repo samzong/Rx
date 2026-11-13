@@ -73,7 +73,10 @@ and launch share this rule. Login does not persist the token. Logout clears
 selection and Rx-owned data without revoking access. Storing the token during
 login is simpler but adds unnecessary key state. Rx does not manage Magpie or
 discover ports. Provider overrides handle other ports. Live model discovery
-alone cannot establish reasoning support under RX-CATALOG-001.
+alone cannot establish reasoning support under RX-CATALOG-001. Bulk catalog
+updates skip public-token-only routes because the token does not establish a
+running gateway. Explicit updates still attempt discovery. Aggregating failures
+instead changes existing remote-provider error handling.
 
 Pi preserves unmarked or edited entries byte-for-byte. A collision uses the
 marker-owned alias `rx-<logical-id>` on this and later launches. Alias conflicts
@@ -87,8 +90,8 @@ Matching v1 entries keep their native identities and upgrade on write. Purge
 removes only unchanged marked entries for the logical ID. Older Rx rejects v2:
 retain its marker and use a v2-capable version for rollback. One lock spans the
 two atomic writes, which are not transactional. After interruption, Rx preserves
-unmarked or mismatched values and reports conflicts. Earlier overwritten data
-cannot be recovered.
+unmarked or mismatched values and reports conflicts. Data that an older Rx
+already overwrote cannot be recovered.
 
 Kimi launches hold shared file leases across native execution. Unix uses inherited
 `flock` locks. Windows uses inherited read handles that deny write sharing.
@@ -126,8 +129,9 @@ generated catalog cache.
 
 Removal follows RX-OWN-001: an entry is removed only when a marker records Rx as
 its author and the on-disk value still matches the recorded payload. Entries
-without a marker, or edited since Rx wrote them, are preserved and reported by
-path so the user decides. Kimi is the only surface holding a literal credential,
+without a marker are preserved without attribution to Rx. Entries edited since
+Rx wrote them are preserved and reported by path so the user decides. Kimi is
+the only surface holding a literal credential,
 so an active lease there blocks removal. Logout is fail-closed: when any
 credential surface still holds a copy of the key, Rx keeps its own stored key
 too, names the blocker, and tells the user to rerun logout. A logout that

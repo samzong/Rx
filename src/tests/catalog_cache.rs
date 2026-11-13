@@ -137,6 +137,39 @@ fn providers_models_update_command_fetches_configured_provider() {
 }
 
 #[test]
+fn bulk_model_update_skips_local_only_credentials() {
+    let (_dir, paths) = temp_paths();
+    let offline = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let offline_url = format!("http://{}/v1", offline.local_addr().unwrap());
+    drop(offline);
+    let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"sol"}]}"#);
+    fs::write(
+        &paths.config,
+        format!(
+            "[provider.magpie]\nauth = \"env\"\nbase_url = \"{offline_url}\"\n[provider.zulu]\nbase_url = \"{base_url}\"\n"
+        ),
+    )
+    .unwrap();
+    fs::write(&paths.keys, "magpie = \"ignored-stored-key\"\nzulu = \"test-key\"\n").unwrap();
+    crate::providers::run(
+        ProvidersCommand::ModelsUpdate { provider: None },
+        &paths,
+        &isolated(&[]),
+    )
+    .unwrap();
+    server.join().unwrap();
+    assert!(paths.dir.join("catalogs/zulu.json").is_file());
+    assert!(
+        crate::providers::run(
+            ProvidersCommand::ModelsUpdate { provider: Some("magpie".to_string()) },
+            &paths,
+            &isolated(&[]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn provider_catalog_cache_is_reused_until_expiry() {
     let (_dir, paths) = temp_paths();
     let (base_url, server) = serve_openai_models(r#"{"data":[{"id":"gpt-5.6-sol","name":"Sol"}]}"#);

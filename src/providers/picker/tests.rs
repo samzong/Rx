@@ -18,6 +18,7 @@ fn state(id: &str, name: &str, configured: bool, default: bool) -> ProviderState
         },
         orphaned: false,
         configured,
+        local_credential: false,
         stored_key: configured,
         environment_active: false,
         default,

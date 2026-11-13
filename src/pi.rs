@@ -212,11 +212,7 @@ pub(crate) fn purge(provider_id: &str, env: &EnvLookup) -> Result<Residue> {
         }
     });
     if !marked {
-        return Ok(if providers.contains_key(provider_id) {
-            Residue::Unowned(models_path)
-        } else {
-            Residue::Absent
-        });
+        return Ok(Residue::Absent);
     }
     for native_id in &removed {
         patch_provider(&mut contents, native_id, None)?;

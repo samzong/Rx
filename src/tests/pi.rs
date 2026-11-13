@@ -81,17 +81,14 @@ fn pi_purge_removes_only_the_marked_provider() {
 }
 
 #[test]
-fn pi_purge_reports_unmarked_and_user_edited_residue() {
+fn pi_purge_preserves_unmarked_and_reports_user_edited_residue() {
     let dir = tempfile::tempdir().unwrap();
     let models_path = dir.path().join("models.json");
     let env = isolated(&[("PI_CODING_AGENT_DIR", dir.path().to_str().unwrap())]);
     fs::write(&models_path, r#"{"providers":{"acme":{"baseUrl":"https://provider.test/v1"}}}"#)
         .unwrap();
 
-    assert_eq!(
-        crate::pi::purge("acme", &env).unwrap(),
-        crate::residue::Residue::Unowned(models_path.clone())
-    );
+    assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Absent);
     assert!(read_json::<Value>(&models_path)["providers"]["acme"].is_object());
 
     let provider = json!({ "baseUrl": "https://provider.test/v1", "apiKey": "$ACME_API_KEY" });
@@ -151,6 +148,16 @@ fn pi_alias_plan_and_purge_preserve_unowned_json_bytes() {
     server.join().unwrap();
     assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Removed);
     assert_eq!(fs::read(&models_path).unwrap(), original);
+    assert!(!agent_dir.join("models.json.rx-catalog.json").exists());
+
+    launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
+    let mut document: Value = read_json(&models_path);
+    document["providers"].as_object_mut().unwrap().remove("acme");
+    write_json(&models_path, &document);
+    let plan = launch::plan(&request(Harness::Pi, Some("acme"), &[]), &paths, &env).unwrap();
+    assert_eq!(plan.args, os(&["--models", "rx-acme/**", "--model", "rx-acme/nested/model"]));
+    assert!(read_json::<Value>(&models_path)["providers"].get("acme").is_none());
+    assert_eq!(crate::pi::purge("acme", &env).unwrap(), crate::residue::Residue::Removed);
     assert!(!agent_dir.join("models.json.rx-catalog.json").exists());
 }
 
