@@ -6,8 +6,8 @@ Rx installs and updates managed rx-agent binaries. The agent does not update its
 
 - The tag is `rx-agent-v<agent/package.json version>` in this repository.
 - Each release has four Bun binaries in platform archives and `SHA256SUMS`.
-- Agent releases use `--latest=false`. Rx releases explicitly become latest.
-  Both workflows read back the latest release after publishing.
+- Agent releases and prereleases use `--latest=false`. Prereleases also pass `--prerelease`. Stable Rx releases pass `--latest`.
+  Both workflows publish scoped `git-cliff` notes and read back the published release and repository latest release after publishing.
 - Rx archives contain no agent binary. `make install` still installs both products from source.
 
 ## Installation
