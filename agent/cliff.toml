@@ -1,0 +1,40 @@
+[changelog]
+header = ""
+body = """
+{% if version %}
+## [{{ version | trim_start_matches(pat="rx-agent-v") }}] ({{ timestamp | date(format="%Y-%m-%d") }})
+{% if commits | length == 0 %}
+
+No user-facing changes.
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+* {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message }}{% endfor %}
+{% endfor %}
+{% endif %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+require_conventional = false
+protect_breaking_commits = true
+include_paths = ["agent/**"]
+commit_parsers = [
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^Merge ", skip = true },
+  { message = "^[a-z]+(\\(.+\\))?!:", group = "<!-- 0 -->BREAKING CHANGES" },
+  { message = "^feat", group = "<!-- 1 -->Features" },
+  { message = "^fix", group = "<!-- 2 -->Fixes" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  { message = "^refactor", group = "<!-- 4 -->Refactors" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^chore|^ci|^build|^test", skip = true },
+]
+tag_pattern = "^rx-agent-v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\\.[1-9][0-9]*)?$"
+ignore_tags = "^v[0-9]"
+sort_commits = "oldest"
