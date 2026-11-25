@@ -137,6 +137,25 @@ def assert_release_flags(artifact: str, tag: str, flags: list[str]) -> None:
             raise ValueError(f"--latest=false is required for {artifact} release {tag}")
 
 
+def parse_latest_api_result(returncode: int, stdout: str, stderr: str) -> str:
+    if returncode == 0:
+        return stdout.strip()
+    detail = (stderr or stdout).strip()
+    if "HTTP 404" in detail or "404 Not Found" in detail:
+        return ""
+    raise ValueError(f"Failed to query repository latest release: {detail or f'exit {returncode}'}")
+
+
+def fetch_latest_tag(repo_slug: str) -> str:
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo_slug}/releases/latest", "--jq", ".tag_name"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return parse_latest_api_result(result.returncode, result.stdout, result.stderr)
+
+
 def verify_published(
     artifact: str,
     tag: str,
@@ -250,6 +269,7 @@ def main() -> int:
     p_verify.add_argument("--actual-prerelease", required=True)
     p_verify.add_argument("--actual-draft", required=True)
     p_verify.add_argument("--latest-tag", default="")
+    p_verify.add_argument("--repo-slug")
 
     p_notes = subparsers.add_parser("notes")
     p_notes.add_argument("--artifact", choices=sorted(ARTIFACTS), required=True)
@@ -287,13 +307,14 @@ def main() -> int:
             return 0
 
         if args.command == "verify-published":
+            latest_tag = fetch_latest_tag(args.repo_slug) if args.repo_slug else args.latest_tag
             verify_published(
                 args.artifact,
                 args.tag,
                 args.actual_tag,
                 args.actual_prerelease,
                 args.actual_draft,
-                args.latest_tag,
+                latest_tag,
             )
             return 0
 

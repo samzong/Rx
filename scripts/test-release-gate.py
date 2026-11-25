@@ -147,6 +147,11 @@ class ReleaseGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 GATE.verify_published(*args)
 
+        self.assertEqual("v0.2.1", GATE.parse_latest_api_result(0, "v0.2.1\n", ""))
+        self.assertEqual("", GATE.parse_latest_api_result(1, "", "gh: Not Found (HTTP 404)"))
+        with self.assertRaises(ValueError):
+            GATE.parse_latest_api_result(1, "", "gh: Bad Gateway (HTTP 502)")
+
     def test_git_cliff_configs_isolate_core_and_agent_commits_and_tags(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

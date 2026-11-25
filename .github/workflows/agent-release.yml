@@ -146,7 +146,7 @@ jobs:
           ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0
           fetch-tags: true
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c
         with:
           tool: git-cliff@2.14.1
       - uses: actions/download-artifact@v5
@@ -154,6 +154,26 @@ jobs:
           pattern: rx-agent-*
           path: release-assets
           merge-multiple: true
+      - name: Verify release commit
+        shell: bash
+        env:
+          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$VALIDATED_SHA" ]; then
+            echo "::error::checked out commit moved after validation"
+            exit 1
+          fi
+          if [ "$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")" != "$VALIDATED_SHA" ]; then
+            echo "::error::release tag $RELEASE_TAG moved after validation"
+            exit 1
+          fi
+          for built in release-assets/rx-agent-*.sha; do
+            if [ "$(tr -d '[:space:]' < "$built")" != "$VALIDATED_SHA" ]; then
+              echo "::error::$built was not built from validated commit $VALIDATED_SHA"
+              exit 1
+            fi
+          done
       - name: Generate scoped release notes
         shell: bash
         run: |
@@ -168,7 +188,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          VALIDATED_SHA: ${{ needs.check.outputs.sha }}
           IS_PRERELEASE: ${{ needs.check.outputs.is_prerelease }}
         run: |
           set -euo pipefail
@@ -180,12 +199,6 @@ jobs:
           fi
           python3 scripts/release-gate.py assert-flags --artifact agent --tag "$tag" -- "${release_flags[@]}"
           cd release-assets
-          for built in rx-agent-*.sha; do
-            if [ "$(tr -d '[:space:]' < "$built")" != "$VALIDATED_SHA" ]; then
-              echo "::error::$built was not built from validated commit $VALIDATED_SHA"
-              exit 1
-            fi
-          done
           sha256sum rx-agent-*.tar.gz rx-agent-*.zip > SHA256SUMS
           if gh release view "$tag" >/dev/null 2>&1; then
             edit_flags=("${release_flags[@]}")
@@ -200,11 +213,10 @@ jobs:
           actual_tag="$(gh release view "$tag" --json tagName -q .tagName)"
           actual_prerelease="$(gh release view "$tag" --json isPrerelease -q .isPrerelease)"
           actual_draft="$(gh release view "$tag" --json isDraft -q .isDraft)"
-          latest_tag="$(gh release view --json tagName -q .tagName 2>/dev/null || true)"
           python3 ../scripts/release-gate.py verify-published \
             --artifact agent \
             --tag "$tag" \
             --actual-tag "$actual_tag" \
             --actual-prerelease "$actual_prerelease" \
             --actual-draft "$actual_draft" \
-            --latest-tag "$latest_tag"
+            --repo-slug "$GITHUB_REPOSITORY"
